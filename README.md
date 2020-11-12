@@ -7,11 +7,14 @@ Includes:
 * Script to sort primaries into frames and find events and particle tracks
   (blobs) from those frames (`find_events.py`)
 * Wrapper script to parallelize either of the above (`wrapit.pl`)
-* Original Perl script that did everything for OU data (`doit.pl`)
-* Converted Python version of doit.pl (`doit.py`)
-* Jupyter Notebook with doit.py code + some of the process (`dot.ipynb`)
-* Perl initial random values for use in Python comparison to Perl (`framedist_vals.txt`)
-* Tests to compare the two (`testing_txt` folder)
+* Test data generated from MIT Geant4 simulations (`test_data/`)
+
+* Development directory containing deprecated scripts and testing (`devel/`)
+* Original Perl script that did everything for OU data (`devel/doit.pl`)
+* Converted Python version of doit.pl (`devel/doit.py`)
+* Jupyter Notebook with doit.py code + some of the process (`devel/dot.ipynb`)
+* Perl initial random values for use in Python comparison to Perl (`devel/framedist_vals.txt`)
+* Tests to compare the two (`devel/testing_txt` folder)
 
 Notes on usage:
 * The pre-processing script only works on the Geant4 output format
@@ -21,19 +24,23 @@ Notes on usage:
 * The pre-processing script is designed to process a single file called as
   an argument, e.g.:
   ```
-  /path/to/geant4-scripts/convert_to_fits_mit.py input_50Mprotons/20201029073013_32358689_StepLog_0097.gdat
+  ./convert_to_fits_mit.py test_data/20201006173157_StepLog_0000.gdat.gz
   ```
   and it will write a single FITS pixel files for that file. The
   multi-thread wrapper takes as arguments the script to run and a list of
   files to process. All must be specified by the path from the current
   working directory, e.g.:
   ```
-  /path/to/geant4-scripts/wrapit.pl /path/to/geant4-scripts/convert_to_fits_mit.py input_50Mprotons/*StepLog*gdat
+  ./wrapit.pl ./convert_to_fits_mit.py test_data/*StepLog*.gdat.gz
   ```
   The wrapper will fork processes to run the wrapped script in parallel; by
   default it will run 20 parallel threads. This can be changed by editing
   the `wrapit.pl` script $MAXPROCS setting. 
 * The post-processing script acts and can be wrapped in the same way. It
-  takes as argument a raw pixel FITS file and outputs a single frame,
-  pixel, event, and blob file. Right now those files must be concatenated
-  by hand; this will be automated in a future release.
+  takes as argument a raw pixel FITS file output by the pre-processing script:
+  ```
+  ./wrapit.pl ./find_events.py test_data/rawpix_*.fits
+  ```
+  and outputs a single frame, pixel, event, and blob file. Right now those
+  files must be concatenated by hand; this will be automated in a future
+  release.

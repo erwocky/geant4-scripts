@@ -50,7 +50,7 @@ ptypes = { 'proton' : 1,
            'alpha' : 128 }
 
 filename = sys.argv[1]
-if not re.search('.*_StepLog_[0-9]+\.gdat$', filename) : 
+if not re.search('.*_StepLog_[0-9]+\.gdat[\.gz]*$', filename) : 
     raise IOError(f'Error: file {filename} does not look like a StepLog file')
 if not os.path.isfile(filename) :
     raise IOError(f'Error reading file {filename}')
@@ -59,7 +59,7 @@ path = os.path.dirname(filename)
 
 g4stepfile = filename
 g4evtfile = re.sub('StepLog', 'EvtLog', g4stepfile)
-runid = int( re.sub(r'.*_([0-9]+)_StepLog_([0-9]+)\.gdat', r'\1\2', g4stepfile) )
+runid = int( re.sub('.*?([0-9]+)_StepLog_([0-9]+)\.gdat(\.gz)*$', r'\1\2', g4stepfile) )
 outfile = os.path.join(path, f'rawpix_{runid}.fits')
 print(f'### Converting run {runid}.')
 print(f'### Step file   {g4stepfile}.')
@@ -120,73 +120,58 @@ pix_runid = np.zeros(numrows, dtype=np.uint16) + runid
 # Convert Rick's LOCAL coords (in mm per depfet) to the full focal plane.
 # I'm using Michael Hubbard's sensitive areas from 
 # 'sensitive_area/DEPFET_sensitive_area_v7.pdf', with my annotations.
-#
-#print(f'{prex_mm.max()}, {postx_mm.max()}, {prey_mm.max()}, {posty_mm.max()}')
+# Layout is (look-down or look-up doesn't matter, methinks):
+#   C B
+#   D A
+# Gotta use pd.loc correctly here in assignment to ensure it's
+# a view and not a copy into the Series. I guess.
+# This should be propagated back to the views I defined above, e.g.
+# g4step['LPre-X'] -> prex_mm
+# g4step['LPost-X'] -> postx_mm
+# g4step['LPre-Y'] -> prey_mm
+# g4step['LPost-Y'] -> posty_mm
 # 'D' is at origin, so coords don't need to be shifted
-indx = (depfet == 'DEPFETA')
-#pix_detid[indx] = 3
 # 'A' is shifted only in X
 indx = (depfet == 'DEPFETA')
-#pix_detid[indx] = 0
-prex_mm.loc[indx]  = prex_mm.loc[indx]  + 7.64 + 31.36 + 35.3 + 3.7
-postx_mm.loc[indx] = postx_mm.loc[indx] + 7.64 + 31.36 + 35.3 + 3.7
+g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7
+g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7
 # 'C' is shifted only in Y
 indx = (depfet == 'DEPFETC')
-#pix_detid[indx] = 2
-prey_mm.loc[indx]  = prey_mm.loc[indx]  + 6.72 + 31.36 + 35.3 + 2.78
-posty_mm.loc[indx] = posty_mm.loc[indx] + 6.72 + 31.36 + 35.3 + 2.78
+g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78
+g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78
 # 'B' is shifted in both X and Y
 indx = (depfet == 'DEPFETB')
-#pix_detid[indx] = 1
-prex_mm.loc[indx]  = prex_mm.loc[indx]  + 7.64 + 31.36 + 35.3 + 3.7
-postx_mm.loc[indx] = postx_mm.loc[indx] + 7.64 + 31.36 + 35.3 + 3.7
-prey_mm.loc[indx]  = prey_mm.loc[indx]  + 6.72 + 31.36 + 35.3 + 2.78
-posty_mm.loc[indx] = posty_mm.loc[indx] + 6.72 + 31.36 + 35.3 + 2.78
-#print(f'{prex_mm.max()}, {postx_mm.max()}, {prey_mm.max()}, {posty_mm.max()}')
+g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7
+g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7
+g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78
+g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78
 
+# bin the start and end step points into 130µm WFI pixels
 prex = np.floor(prex_mm/.13).astype(int)
 prey = np.floor(prey_mm/.13).astype(int)
 postx = np.floor(postx_mm/.13).astype(int)
 posty = np.floor(posty_mm/.13).astype(int)
 
-#print(f'{prex.max()}, {postx.max()}, {prey.max()}, {posty.max()}')
-
+# get the differences to see if the step is fully in a pixel
 delta_x = postx - prex
 delta_y = posty - prey
 
-#pix_primid = pix[b'framenb']
-#pix_edep = pix[b'edep']
-#pix_localx = pix[b'localx']
-#pix_localy = pix[b'localy']
-#pix_pdg = pix[b'pdg']
-## need these initialized since we populate them before binning
-#pix_runid = np.zeros(pix_primid.size, dtype=np.ubyte)
-#pix_actx = np.zeros(pix_primid.size, dtype=np.ushort)
-#pix_acty = np.zeros(pix_primid.size, dtype=np.ushort)
-# things below will be created later, from the binned-up pixel
-# data, which could have smaller size
-#pix_detid = np.zeros(pix_primid.size, dtype=np.ubyte)
-#pix_primtype = np.zeros(pix_primid.size, dtype=np.ubyte) + primtype
-#pix_rawx = np.zeros(pix_primid.size, dtype=np.ushort)
-#pix_rawy = np.zeros(pix_primid.size, dtype=np.ushort)
+# initialize the 2D look-up table of detector ID
+# DETID is 0,1,2,3 for A,B,C,D.
+img_detid = np.zeros([1201,1201], dtype=np.byte)
+img_detid[:600,:586] = 3
+img_detid[600:,:586] = 0
+img_detid[:600,586:] = 2
+img_detid[600:,586:] = 1
 
-## primid starts over every run, so do something complicated to fix that
-## first find the boundaries
-#diff_primid = pix_primid[1:] - pix_primid[0:-1]
-## elements that are negative indicate beginning of a new set, although
-## the index is now off by one, so add a zero at the beginning to index
-## back into the original pix_primid array
-#diff_primid = np.insert(diff_primid, 0, 0)
-## now get indices of negative diffs
-#indx = np.flatnonzero(diff_primid<0)
-## loop through the boundaries (runs) and increment all subsequent
-## primids by the number of primaries in the previous run
-## also populate the run piddle
-#this_runid = 0
-#for boundary in indx :
-#      pix_primid[boundary:] += run_numprims[this_runid]
-#      pix_runid[boundary:] += 1
-#      this_runid += 1
+# initialize the 2D look-up tables of RAWX and RAWY,
+# defined as DEPFET quadrant pixels 0-511,0-511
+# DETID is 0,1,2,3 for A,B,C,D.
+img_detid = np.zeros([1201,1201], dtype=np.byte)
+img_detid[:600,:586] = 3
+img_detid[600:,:586] = 0
+img_detid[:600,586:] = 2
+img_detid[600:,586:] = 1
 
 # initialize 2D pixel array for summed deposited energy and the secondary 
 # particle types ('pdg') responsible; need enough for 0.13mm pixels
@@ -272,6 +257,7 @@ for ii in range(numprims_interact) :
     this_acty = np.argwhere(indx)[:,1]
     this_edep = img_edep[indx]
     this_pdg = img_pdg[indx]
+    this_detid = img_detid[indx]
 
     # put it all in the output arrays
     this_endrow = this_startrow + indx.sum()
@@ -279,7 +265,7 @@ for ii in range(numprims_interact) :
     # allocate output arrays, which are pixel-based
     pix_primid[this_startrow:this_endrow] = this_primid
     # gotta figure these out
-    #pix_detid[this_startrow:this_endrow] = this_detid
+    pix_detid[this_startrow:this_endrow] = this_detid
     #pix_rawx[this_startrow:this_endrow] = this_rawx
     #pix_rawy[this_startrow:this_endrow] = this_rawy
     pix_actx[this_startrow:this_endrow] = this_actx
