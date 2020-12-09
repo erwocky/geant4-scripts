@@ -6,9 +6,9 @@
 # Geant4 output.
 #
 # EDM Wed Nov  4 17:36:39 EST 2020
-# First version to read Rick's format of Geant4 output. Adapted from MPE readit.py.
+# First version to read Rick's format of Geant4 output. Adapted from MPE
+# readit.py.
 
-import uproot
 import numpy as np
 import astropy
 import os, sys, glob, re
