@@ -190,7 +190,7 @@ for ii in range(numprims_interact) :
     #print(f'this_primid = {this_primid}')
     #print(f'this_energy = {this_energy}')
     #print(f'this_particletype = {this_particletype}')
-    this_primtype = ptypes[this_particletype]
+    this_primtype = ptypes.get(this_particletype, 0)
     indx = (primid == this_primid)
     # number of steps in this primary
     numsteps = indx.sum()
@@ -205,7 +205,7 @@ for ii in range(numprims_interact) :
         #print(f'### {jj}: {particletype[indx].iloc[jj]}, {process[indx].iloc[jj]}, X = {prex[indx].iloc[jj]}->{postx[indx].iloc[jj]}, Y = {prey[indx].iloc[jj]}->{posty[indx].iloc[jj]}') 
 
         # get the secondary particle type
-        this_pdg = ptypes[particletype[indx].iloc[jj]]
+        this_pdg = ptypes.get(particletype[indx].iloc[jj], 0)
         this_prex = prex[indx].iloc[jj]
         this_prey = prey[indx].iloc[jj]
         this_postx = postx[indx].iloc[jj]
