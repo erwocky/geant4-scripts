@@ -32,7 +32,7 @@ if num_args < 1:
 
 # These things are Geant4-source-specific, so should be
 # written to header of rawpix file. Probably.
-sphere_radius = 20. # radius of boundary sphere in cm
+sphere_radius = 70. # radius of boundary sphere in cm
 # num_protons_per_run comes from the EvtLog file, since
 # it could be different for each MIT run.
 
@@ -124,6 +124,25 @@ for filename in sys.argv[1:] :
     pix_runid = np.zeros(numrows, dtype=np.uint16) + runid
 
     # Convert Rick's LOCAL coords (in mm per depfet) to the full focal plane.
+    # DEPFETS are each 78mm wide x 76.15mm high with 0.59mm and 0.37mm gaps.
+    # So the full DEPFET area spans X=0.0:156.59, Y=0.0:152.67 in mm, or
+    # X=0:1204.5, Y=0:1174.4 in 130-µm pixels. So the array needs to be at 
+    # least that big to hold everything. Thus ACT coords are defined as:
+    #   ACTX=0:1205, ACTY=0:1205 (1206x1206 pixels)
+    # The visible area of each in ACT coords:
+    #       LLC_X  URC_X   LLC_Y  URC_Y
+    #   D   7.67   74.23   6.76   73.32
+    #   C   7.67   74.23   79.3   145.86
+    #   A   82.16  148.72  6.76   73.32
+    #   B   82.16  148.72  79.3   145.86
+    # These have been somewhat jiggled so they fall on (virual) pixel boundaries.
+    # And the gaps are rounded to the nearest pixel. These correspond to the foloowing
+    # ACT pixels:
+    #       ACTX        ACTY
+    #   D   59:570      52:563
+    #   C   59:570      610:1121
+    #   A   632:1143    52:563
+    #   B   632:1143    610:1121
     # I'm using Michael Hubbard's sensitive areas from 
     # 'sensitive_area/DEPFET_sensitive_area_v7.pdf', with my annotations.
     # Layout is (look-down or look-up doesn't matter, methinks):
@@ -139,18 +158,18 @@ for filename in sys.argv[1:] :
     # 'D' is at origin, so coords don't need to be shifted
     # 'A' is shifted only in X
     indx = (depfet == 'DEPFETA')
-    g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7
-    g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7
+    g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
+    g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
     # 'C' is shifted only in Y
     indx = (depfet == 'DEPFETC')
-    g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78
-    g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78
+    g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
+    g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
     # 'B' is shifted in both X and Y
     indx = (depfet == 'DEPFETB')
-    g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7
-    g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7
-    g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78
-    g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78
+    g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
+    g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
+    g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
+    g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
 
     # bin the start and end step points into 130µm WFI pixels
     prex = np.floor(prex_mm/.13).astype(int)
@@ -165,7 +184,7 @@ for filename in sys.argv[1:] :
     # initialize the 2D look-up tables of RAWX and RAWY,
     # defined as DEPFET quadrant pixels 0-511,0-511
     # DETID is 0,1,2,3 for A,B,C,D.
-    img_detid = np.full([1201,1201], 8, dtype=np.byte)
+    img_detid = np.full([1205,1205], 8, dtype=np.byte)
     img_detid[:600,:586] = 3
     img_detid[600:,:586] = 0
     img_detid[:600,586:] = 2
@@ -174,8 +193,8 @@ for filename in sys.argv[1:] :
     # initialize 2D pixel array for summed deposited energy and the secondary 
     # particle types ('pdg') responsible; need enough for 0.13mm pixels
     # in 78x76.15mm DEPFETS, which is really 600x586
-    img_edep = np.zeros([1201,1201], dtype=np.float32)
-    img_pdg = np.zeros([1201,1201], dtype=np.uint16)
+    img_edep = np.zeros(img_detid.shape, dtype=np.float32)
+    img_pdg = np.zeros(img_detid.shape, dtype=np.uint16)
 
     # loop through primids
     splitstep = 0
@@ -290,11 +309,46 @@ for filename in sys.argv[1:] :
     pix_primtype = pix_primtype[0:numrows]
     pix_runid = pix_runid[0:numrows]
 
+    # eliminate signal outside of the 512-pixel active region of each DEPFET,
+    # as defined above
+    #       ACTX        ACTY
+    #   D   59:570      52:563
+    #   C   59:570      610:1121
+    #   A   632:1143    52:563
+    #   B   632:1143    610:1121
+    # remove outer ring
+    indx = (pix_actx>=59) & (pix_actx<=1143) & (pix_acty>=52) & (pix_acty<=1121)
+    pix_primid = pix_primid[indx]
+    pix_detid = pix_detid[indx]
+    pix_rawx = pix_rawx[indx]
+    pix_rawy = pix_rawy[indx]
+    pix_actx = pix_actx[indx]
+    pix_acty = pix_acty[indx]
+    pix_edep = pix_edep[indx]
+    pix_pdg = pix_pdg[indx]
+    pix_primtype = pix_primtype[indx]
+    pix_runid = pix_runid[indx]
+    # remove the gaps
+    indx = ( (pix_actx<=570) | (pix_actx>=632) ) & ( (pix_acty<=563) | (pix_acty>=610) )
+    pix_primid = pix_primid[indx]
+    pix_detid = pix_detid[indx]
+    pix_rawx = pix_rawx[indx]
+    pix_rawy = pix_rawy[indx]
+    pix_actx = pix_actx[indx]
+    pix_acty = pix_acty[indx]
+    pix_edep = pix_edep[indx]
+    pix_pdg = pix_pdg[indx]
+    pix_primtype = pix_primtype[indx]
+    pix_runid = pix_runid[indx]
+
     # adjust primids so they start at zero and have no gaps
     evt_newprimid = np.arange(evt_primid.size)
     indx_primid = np.zeros(evt_primid.max()+1)
     indx_primid[evt_primid] = evt_newprimid
     pix_newprimid = indx_primid[pix_primid].astype(np.uint32)
+    numprims_interact = np.unique(pix_newprimid).size
+
+    # fix the num. of interacting primaries to only those in the sensitive area
 
     # make a table and save it to a FITS HDU
     pix_tab = Table([pix_newprimid, pix_primid, pix_detid, pix_rawx, pix_rawy, 
@@ -304,11 +358,11 @@ for filename in sys.argv[1:] :
 
     # add header keywords
     hdu_pix.header['SPH_RAD'] = sphere_radius
-    hdu_pix.header.comments['SPH_RAD'] = 'Radius of Geant4 source sphere in cm.'
+    hdu_pix.header.comments['SPH_RAD'] = 'Radius of Geant4 source sphere in cm'
     hdu_pix.header['NPRI_GEN'] = numprims_gen
-    hdu_pix.header.comments['NPRI_GEN'] = 'Number of primaries generated.'
+    hdu_pix.header.comments['NPRI_GEN'] = 'Number of primaries generated'
     hdu_pix.header['NPRI_INT'] = numprims_interact
-    hdu_pix.header.comments['NPRI_INT'] = 'Number of primaries producing signal.'
+    hdu_pix.header.comments['NPRI_INT'] = 'Number of primaries producing signal'
 
     # put together the FITS HDUs into an HDUList
     hdu_primary = fits.PrimaryHDU()

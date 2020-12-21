@@ -47,9 +47,7 @@ if num_args < 1:
 # These things are Geant4-source-specific, so should be
 # written to header of rawpix file. Probably.
 #sphere_radius = 20. # radius of boundary sphere in cm
-#num_protons_per_run = 16000 # number of proton primaries 
-#sphere_radius = 70. # radius of boundary sphere in cm
-#num_protons_per_run = 1.e6 # number of proton primaries 
+#numprims_gen = 16000 # number of proton primaries 
 
 
 # define defaults
@@ -119,13 +117,17 @@ rng = np.random.RandomState(1234)
 x, y = 0, 0
 
 # 0-511; indexed by detector number 0-3
-x_offset = 513
-y_offset = 513
-imgsize = 1027
-actmin = 0
-actmax = 1026
-xydep_min = -513
-xydep_max = 513
+x_offset = 0
+y_offset = 0
+#x_offset = 513
+#y_offset = 513
+#imgsize = 1027
+actx_min = 59
+actx_max = 1143
+acty_min = 52
+acty_max = 1121
+#xydep_min = -513
+#xydep_max = 513
 
 def match(regex: str, string: str):
     return re.compile(regex).search(string)
@@ -184,42 +186,42 @@ for filename in sys.argv[1:] :
     # some of this will be written out the pixel list (which will
     # also have frame info)
     rawpix = Table.read(infile)
-    xdep = rawpix['ACTX']
-    ydep = rawpix['ACTY']
-    endep = rawpix['EDEP']
-    rundep = rawpix['RUNID']
-    detectordep = rawpix['DETID']
-    eiddep = rawpix['PRIMID']
-    ptypedep = rawpix['PDG']
-    framedep = np.zeros(xdep.size, dtype=int)
-    piddep = np.zeros(xdep.size, dtype=int)
-    blobid = np.zeros(xdep.size, dtype=int)
+    pix_actx = rawpix['ACTX']
+    pix_acty = rawpix['ACTY']
+    pix_energy = rawpix['EDEP']
+    pix_runid = rawpix['RUNID']
+    pix_detid = rawpix['DETID']
+    pix_primid = rawpix['PRIMID']
+    pix_ptype = rawpix['PDG']
+    pix_frame = np.zeros(pix_actx.size, dtype=int)
+    pix_blobid = np.zeros(pix_actx.size, dtype=int)
 
     # get header info
     sphere_radius = rawpix.meta['SPH_RAD']
-    num_protons_per_run = rawpix.meta['NPRI_GEN']
+    numprims_gen = rawpix.meta['NPRI_GEN']
+    numprims_interact = rawpix.meta['NPRI_INT']
 
     # get number of pixels with signal; this is the maximum number
     # we'll use in allocating pixel, event, and blob arrays
-    numpix_with_signal = xdep.size
+    numpix_with_signal = pix_actx.size
 
     # get unique primids and number of primaries that interact
-    uniq_eid = np.unique(eiddep)
+    uniq_eid = np.unique(pix_primid)
     numprimaries = uniq_eid.size
 
     # total exposure time in sec for this run
-    texp_run = num_protons_per_run/3.14159/proton_flux/(sphere_radius**2)
+    texp_run = numprims_gen/3.14159/proton_flux/(sphere_radius**2)
     # average num. primaries per frame
-    mu_per_frame = num_protons_per_run * texp_frame / texp_run 
+    mu_per_frame = numprims_gen * texp_frame / texp_run 
 
-    print(f"### There are {num_protons_per_run} primaries in this run.")
+    print(f"### There are {numprims_gen} primaries in this run.")
     print(f"### The run exposure time is {texp_run} sec.")
     print(f"### The frame exposure time is {texp_frame} sec")
     print(f"### for an expected mean of {mu_per_frame} primaries per frame.")
 
     # initialize event piddles, which will be written out or used later
     evt_runid = np.zeros(numpix_with_signal, dtype=np.uint64)
-    evt_detectorid = np.zeros(numpix_with_signal, dtype=np.int32)
+    evt_detid = np.zeros(numpix_with_signal, dtype=np.int32)
     evt_primid = np.zeros(numpix_with_signal, dtype=np.int32)
     evt_actx = np.zeros(numpix_with_signal, dtype=int)
     evt_acty = np.zeros(numpix_with_signal, dtype=int)
@@ -261,17 +263,17 @@ for filename in sys.argv[1:] :
     # initialize things for the running frames which we will
     # randomly populate
     # frame settings
-    # we know there are $num_protons_per_run, so generate enough
+    # we know there are $numprims_gen, so generate enough
     # random frames to hold them
-    framedist = rng.poisson(mu_per_frame, int(2*num_protons_per_run/mu_per_frame))
+    framedist = rng.poisson(mu_per_frame, int(2*numprims_gen/mu_per_frame))
 
     cumframedist = framedist.cumsum()
     # get the total number of frames needed to capture all the primaries; 
     # will write this to FITS header so we can combine runs
-    numtotframes = which(cumframedist >= num_protons_per_run)[0] + 1
+    numtotframes = which(cumframedist >= numprims_gen)[0] + 1
     # this is wrong, because it will remove the last bin which we need
     # it's also unnecessary
-    #cumframedist = cumframedist[cumframedist <= num_protons_per_run]
+    #cumframedist = cumframedist[cumframedist <= numprims_gen]
 
     # initialize piddles to hold frame-specific things to go in FITS table
     frame_frame = np.zeros(numtotframes, dtype=int)
@@ -298,21 +300,21 @@ for filename in sys.argv[1:] :
     """
     for i in range(numprimaries):
         primary = uniq_eid[i]
-        indx = which(eiddep==primary)
+        indx = which(pix_primid==primary)
         #print("#####################")
         #print(f"Doing primary {primary}")
         #print(f"indx: {indx}")
-        #print(f"eiddep: {eiddep[indx]}")
-        #print(f"OLD framedep {framedep[indx]}")
+        #print(f"pix_primid: {pix_primid[indx]}")
+        #print(f"OLD pix_frame {pix_frame[indx]}")
         # assign each primary to a frame
         # first get the frame ID (indexed starts at 0)
         #print(cumframedist[-1])
         frame = which(cumframedist >= primary)[0]
         #print(f"THIS IS FRAME {frame}")
         # then set the primary and pixel piddles
-        framedep[indx] = frame
-        #print(f"NEW framedep framedep[indx]")
-        num_quadrants = np.unique(detectordep[indx]).size
+        pix_frame[indx] = frame
+        #print(f"NEW pix_frame pix_frame[indx]")
+        num_quadrants = np.unique(pix_detid[indx]).size
         num_in_different_quadrants[num_quadrants-1] += 1
 
     print(f"### Run {this_run}: number of primaries in 1 2 3 4 quads: {num_in_different_quadrants}")
@@ -320,7 +322,7 @@ for filename in sys.argv[1:] :
 
     # figure out the unique frames that are populated by 
     # primaries that interacted
-    frame_frame = np.unique(framedep)
+    frame_frame = np.unique(pix_frame)
     numframes = frame_frame.size
     # now we can allocate frame piddles since we know how many there are
     frame_runid = np.full(numframes, this_run)
@@ -333,11 +335,11 @@ for filename in sys.argv[1:] :
     frame_nblob = np.zeros(numframes)
     frame_nprim = np.zeros(numframes)
 
-    pct_interact = 100. * numprimaries / num_protons_per_run
+    pct_interact = 100. * numprimaries / numprims_gen
     print(f"### Run {this_run}: generated {numtotframes} total frames,")
     print(f"### of which {numframes} frames with the {numprimaries}")
     print(f"### interacting primaries will be written.")
-    print(f"### {num_protons_per_run} total primaries were simulated.")
+    print(f"### {numprims_gen} total primaries were simulated.")
     print(f"### {numprimaries} or {pct_interact}% of these produced a WFI interaction.")
 
     # loop through frames and make a raw frame for each
@@ -366,12 +368,12 @@ for filename in sys.argv[1:] :
         #y = np.zeros(0, float)
         #en = np.zeros(0, float)
         #pixptype = np.zeros(0, float)
-        pixel_indx = which(framedep==this_frame)
-        x = np.copy(xdep[pixel_indx])
-        y = np.copy(ydep[pixel_indx])
-        en = np.copy(endep[pixel_indx])
-        pixptype = np.copy(ptypedep[pixel_indx])
-        pixprimid = np.copy(eiddep[pixel_indx])
+        pixel_indx = which(pix_frame==this_frame)
+        x = np.copy(pix_actx[pixel_indx])
+        y = np.copy(pix_acty[pixel_indx])
+        en = np.copy(pix_energy[pixel_indx])
+        pixptype = np.copy(pix_ptype[pixel_indx])
+        pixprimid = np.copy(pix_primid[pixel_indx])
         # we want to populate this so don't sever it
         """comments..."""
         xoff = np.amin(x) + x_offset - 2
@@ -476,7 +478,7 @@ for filename in sys.argv[1:] :
         numtotblobs = np.amax(blobimg) if np.amax(blobimg) > 0 else numtotblobs
 
         # mark each pixel in a blob
-        blobid[pixel_indx] = indexND(blobimg, coos)
+        pix_blobid[pixel_indx] = indexND(blobimg, coos)
 
         # reset the blobimg to ones where there are blobs, zeros
         # otherwise; this way all the blobs have distance 0 automagically
@@ -509,14 +511,25 @@ for filename in sys.argv[1:] :
             # get piddles containing X,Y coords of threshold crossings
             evtx = indx2d_thcross[0]
             evty = indx2d_thcross[1]
-            """coments"""
+            # ignore threshold crossings on the border, because we don't want to use 
+            # these except for local max comparison; also ignore bad pixels and columns
+            # as noted with -1 values in the mask image
+            # note these indexes are into the $indx_thcross indexes (so they're indexes
+            # of indexes)
+            # EDM Wed Feb  6 12:56:33 EST 2019 
+            # NB: evtx and evty are coords in the small window, not the full frame, so we
+            # need to add on the offset.  Also, we want to ignore events on the borders of
+            # all segments, not just the outer edge.  And eliminate 2 pixels from all
+            # borders.  The last conditional just ensures the pixel is non-negative.  I
+            # guess that's important.
             tmp_evtx = evtx + xoff
             tmp_evty = evty + yoff
-            indx_border, indx_notborder = which_both(
-                (tmp_evtx<=1) | ((tmp_evtx>=510) & (tmp_evtx<=516)) | (tmp_evtx>=1025) | 
-                (tmp_evty<=1) | ((tmp_evty>=510) & (tmp_evty<=516)) | (tmp_evty>=1025) | 
-                (img[evty,evtx] < 0)
-            )
+            indx_notborder = (tmp_evtx>=actx_min+2) & (tmp_evtx<=actx_max-2) & (tmp_evty>=acty_min+2) & (tmp_evty<=acty_max-2) & ( (tmp_evtx<=actx_min+511-2) | (tmp_evtx>=actx_max-511+2) ) & ( (tmp_evty<=acty_min+511-2) | (tmp_evty>=acty_max-511+2) )
+            #indx_border, indx_notborder = which_both(
+            #    (tmp_evtx<=1) | ((tmp_evtx>=510) & (tmp_evtx<=516)) | (tmp_evtx>=1025) | 
+            #    (tmp_evty<=1) | ((tmp_evty>=510) & (tmp_evty<=516)) | (tmp_evty>=1025) | 
+            #    (img[evty,evtx] < 0)
+            #)
             num_notborder = indx_notborder.size
 
             if num_notborder > 0:
@@ -588,7 +601,7 @@ for filename in sys.argv[1:] :
         # append events to running piddles
         indx = np.arange(numevents,numevents+numevents_thisframe)
         evt_runid[indx] = this_run
-        #evt_detectorid[indx] = 0
+        #evt_detid[indx] = 0
         evt_primid[indx] = this_primid
         evt_frame[indx] = this_frame
         evt_actx[indx] = evtx
@@ -714,13 +727,13 @@ for filename in sys.argv[1:] :
     evt_evttype[indx_greens] = 4
     evt_evttype[indx_cyans] = 6
 
-    hdr = {'NFRAMES': numtotframes, 'NBLOBS': numtotblobs}
+    hdr = { 'SPH_RAD' : sphere_radius, 'NPRI_GEN' : numprims_gen, 'NPRI_INT' : numprims_interact, 'NFRAMES' : numtotframes, 'NBLOBS' : numtotblobs, 'TEXPFRAM' : texp_frame }
 
     # write out event file
     outevtfile = os.path.join(path, f'geant_events_{this_run}_evt.fits')
     # chop off the unused parts of the arrays
     evt_runid = evt_runid[:numevents]
-    evt_detectorid = evt_detectorid[:numevents]
+    evt_detid = evt_detid[:numevents]
     evt_primid = evt_primid[:numevents]
     evt_actx = evt_actx[:numevents]
     evt_acty = evt_acty[:numevents]
@@ -735,7 +748,7 @@ for filename in sys.argv[1:] :
     evt_vfaint = evt_vfaint[:numevents]
     evt_frame = evt_frame[:numevents]
 #    wfits({'RUNID': runid.astype(np.uint16),
-#         'DETID': detectorid.astype(np.int32),
+#         'DETID': detid.astype(np.int32),
 #         'PRIMID': primid.astype(np.int32),
 #         'FRAME': evt_frame.astype(np.int32),
 #         'ACTX': actx.astype(np.uint16),
@@ -751,17 +764,18 @@ for filename in sys.argv[1:] :
 #         'VFAINT': vfaint.astype(np.uint8)},
 #           outevtfile, hdr=hdr)
     wfits(
-    (['RUNID', 'DETID', 'PRIMID', 'FRAME', 'ACTX', 'ACTY', 'PHAS', 'PHA', 'PTYPE', 'EVTTYPE', 'ENERGY', 'BLOBDIST', 'MIPDIST', 'PATTERN', 'VFAINT'], [evt_runid.astype(np.int64), evt_detectorid.astype(np.int32), evt_primid.astype(np.int32), evt_frame.astype(np.int32), evt_actx.astype(np.uint16), evt_acty.astype(np.uint16), evt_phas.astype(np.float), evt_pha.astype(np.float), evt_ptype.astype(np.uint8), evt_evttype.astype(np.int16), evt_energy.astype(np.float), evt_blobdist.astype(np.float), evt_mipdist.astype(np.float), evt_pattern.astype(np.uint8), evt_vfaint.astype(np.uint8)]), outevtfile, hdr=hdr)
+    (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBDIST', 'MIPDIST', 'PATTERN', 'PTYPE', 'EVTTYPE', 'VFAINT', 'PHA', 'PHAS', 'RUNID', 'PRIMID'], 
+        [evt_frame.astype(np.int32), evt_detid.astype(np.int32), evt_actx.astype(np.uint16), evt_acty.astype(np.uint16), evt_energy.astype(np.float), evt_blobdist.astype(np.float), evt_mipdist.astype(np.float), evt_pattern.astype(np.uint8), evt_ptype.astype(np.uint8), evt_evttype.astype(np.int16), evt_vfaint.astype(np.uint8), evt_pha.astype(np.float), evt_phas.astype(np.float), evt_runid.astype(np.int64), evt_primid.astype(np.int32)]), outevtfile, hdr=hdr)
 
     # write out pixel list
     print(f"### Writing pixel list for run {this_run}.")
     outpixfile = os.path.join(path, f'geant_events_{this_run}_pix.fits')
-    xdep += x_offset
-    ydep += y_offset
-    indx_sorted = np.argsort(framedep)
+    pix_actx += x_offset
+    pix_acty += y_offset
+    indx_sorted = np.argsort(pix_frame)
     wfits( 
-    (['ACTX', 'ACTY', 'BLOBID', 'ENERGY', 'FRAME', 'PRIMID', 'PTYPE', 'RUNID'],
-     [xdep[indx_sorted], ydep[indx_sorted], blobid[indx_sorted], endep[indx_sorted], framedep[indx_sorted], eiddep[indx_sorted], ptypedep[indx_sorted], rundep[indx_sorted]]), 
+    (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBID', 'PTYPE', 'RUNID', 'PRIMID'],
+     [pix_frame[indx_sorted], pix_detid[indx_sorted], pix_actx[indx_sorted], pix_acty[indx_sorted], pix_energy[indx_sorted], pix_blobid[indx_sorted], pix_ptype[indx_sorted], pix_runid[indx_sorted], pix_primid[indx_sorted]]), 
     outpixfile, hdr=hdr)
 
     # write out frame list
@@ -769,8 +783,8 @@ for filename in sys.argv[1:] :
     outframefile = os.path.join(path, f'geant_events_{this_run}_frames.fits')
     indx_sorted = np.argsort(frame_frame)
     wfits(
-    (['FRAME', 'NBLOB', 'NEVT', 'NEVT27', 'NEVTGOOD', 'NPIX', 'NPIXMIP', 'NPRIM', 'RUNID', 'TIME'], 
-     [frame_frame[indx_sorted], frame_nblob[indx_sorted], frame_nevt[indx_sorted], frame_nevt27[indx_sorted], frame_nevtgood[indx_sorted], frame_npix[indx_sorted], frame_npixmip[indx_sorted], frame_nprim[indx_sorted], frame_runid[indx_sorted], frame_time[indx_sorted]]),
+    (['FRAME', 'TIME', 'NPRIM', 'NBLOB', 'NEVT', 'NEVT27', 'NEVTGOOD', 'NPIX', 'NPIXMIP', 'RUNID'], 
+     [frame_frame[indx_sorted], frame_time[indx_sorted], frame_nprim[indx_sorted], frame_nblob[indx_sorted], frame_nevt[indx_sorted], frame_nevt27[indx_sorted], frame_nevtgood[indx_sorted], frame_npix[indx_sorted], frame_npixmip[indx_sorted], frame_runid[indx_sorted]]),
     outframefile, hdr = hdr)  
 
     # write out blob list
@@ -789,8 +803,8 @@ for filename in sys.argv[1:] :
     # sort by blobid
     indx_sorted = np.argsort(blob_blobid)
     wfits(
-    (['BLOBID', 'CENX', 'CENXCL', 'CENY', 'CENYCL', 'ENERGY', 'ENERGYCL', 'FRAME', 'NPIX'],
-    [blob_blobid[indx_sorted], blob_cenx[indx_sorted], blob_cenxcl[indx_sorted], blob_ceny[indx_sorted], blob_cenycl[indx_sorted], blob_energy[indx_sorted], blob_energycl[indx_sorted], blob_frame[indx_sorted], blob_npix[indx_sorted]]),
+    (['FRAME', 'BLOBID', 'CENX', 'CENXCL', 'CENY', 'CENYCL', 'ENERGY', 'ENERGYCL', 'NPIX'],
+    [blob_frame[indx_sorted], blob_blobid[indx_sorted], blob_cenx[indx_sorted], blob_cenxcl[indx_sorted], blob_ceny[indx_sorted], blob_cenycl[indx_sorted], blob_energy[indx_sorted], blob_energycl[indx_sorted], blob_npix[indx_sorted]]),
     outblobfile, hdr = hdr)
 
     print(f"### Finished run {this_run}.")

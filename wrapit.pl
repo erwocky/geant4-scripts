@@ -27,7 +27,7 @@ our $EXEC = shift @ARGV;
 our @ARGS = @ARGV;
 
 our $MAXPROCS = 20;
-our $WAITSEC = 2;
+our $WAITSEC = 1;
 our $PS = "/bin/ps auxww";
 
 ## -- uniq @ARGS, sorted in numerical order
