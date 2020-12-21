@@ -21,13 +21,13 @@ Notes on usage:
   specified, in this case MIT. Pre-processing scripts for OU format
   (comma-separated text files) and MPE format (ROOT files) are under
   construction.
-* The pre-processing script is designed to process a single file called as
-  an argument, e.g.:
+* The pre-processing script is designed to process a list of files called as
+  arguments, e.g.:
   ```
   ./convert_to_fits_mit.py test_data/20201006173157_StepLog_0000.gdat.gz
   ```
-  and it will write a single FITS pixel files for that file. The
-  multi-thread wrapper takes as arguments the script to run and a list of
+  and it will write a single FITS pixel file for each file. The
+  multi-thread wrapper takes as arguments the script to run and the list of
   files to process. All must be specified by the path from the current
   working directory, e.g.:
   ```
@@ -37,10 +37,11 @@ Notes on usage:
   default it will run 20 parallel threads. This can be changed by editing
   the `wrapit.pl` script $MAXPROCS setting. 
 * The post-processing script acts and can be wrapped in the same way. It
-  takes as argument a raw pixel FITS file output by the pre-processing script:
+  takes as arguments a list of raw pixel FITS files output by the
+  pre-processing script:
   ```
   ./wrapit.pl ./find_events.py test_data/rawpix_*.fits
   ```
-  and outputs a single frame, pixel, event, and blob file. Right now those
-  files must be concatenated by hand; this will be automated in a future
-  release.
+  and outputs a single frame, pixel, event, and blob file for each input file.
+  Right now those files must be concatenated by hand; this will be automated
+  in a future release.
