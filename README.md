@@ -7,6 +7,7 @@ Includes:
 * Script to sort primaries into frames and find events and particle tracks
   (blobs) from those frames (`find_events.py`)
 * Wrapper script to parallelize either of the above (`wrapit.pl`)
+* Concatenation script to combine output from above into single files (`combit.py`).
 * Test data generated from MIT Geant4 simulations (`test_data/`)
 
 * Development directory containing deprecated scripts and testing (`devel/`)
@@ -43,5 +44,11 @@ Notes on usage:
   ./wrapit.pl ./find_events.py test_data/rawpix_*.fits
   ```
   and outputs a single frame, pixel, event, and blob file for each input file.
-  Right now those files must be concatenated by hand; this will be automated
-  in a future release.
+  Those four sets of files can be concatenated into single large files, with running
+  columns like FRAME and TIME and ID numbers incremented and header information updated:
+  ```
+  ./combit.py test_data/
+  ```
+  Note the different syntax; this takes only the directory path which contains the FITS
+  files, and will combine whatever it finds there with filenames matching what's expected
+  from `find_events.py`.
