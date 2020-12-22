@@ -3,7 +3,20 @@
 # Pre-processing script that reads Geant4 output from a particular source
 # and saves it to a uniform-format FITS file encoding the energy deposited
 # in WFI pixels for each primary particle. This is for the MIT-generated
-# Geant4 output.
+# Geant4 output, which should be sorted into directories for different
+# runs.  The directory name is expected as an argument, and it must contain
+# sets of files of the following naming convention:
+#
+# *_EvtLog_*.gdat
+# *_StepLog_*.gdat
+#
+# The EvtLog file contains summary information of each generated primary,
+# and the StepLog file contains the energy deposition steps.
+#
+# EDM Tue Dec 22 09:52:18 EST 2020
+# Updated output FITS data types. Implemented 'wfits()' function Brian made
+# to simplify FITS writing. 'ptype'->'partype' to eliminate confusion with
+# primary type (have to do this downstream too).
 #
 # EDM Wed Nov  4 17:36:39 EST 2020
 # First version to read Rick's format of Geant4 output. Adapted from MPE
@@ -12,7 +25,7 @@
 import numpy as np
 import astropy
 import os, sys, glob, re
-from astropy.table import Table, vstack
+from astropy.table import Table
 from astropy.io import fits
 import pandas as pd
 
@@ -20,15 +33,23 @@ num_args = len(sys.argv) - 1
 if num_args < 1:
     sys.exit(f"Usage: {sys.argv[0]} <path/to/Geant4 StepLog file> ...")
 
-# Geant4 output data should be sorted into directories for different runs.
-# The directory name is expected as an argument, and it must contain sets
-# of files of the following naming convention:
-#
-# *_EvtLog_*.gdat
-# *_StepLog_*.gdat
-#
-# The EvtLog file contains summary information of each generated primary,
-# and the StepLog file contains the energy deposition steps.
+# functions
+def wfits(data, fitsfile, ow=True, hdr=None, hdrcomments=None):
+    if isinstance(data, dict):
+        pass
+    elif isinstance(data, tuple):
+        t = Table(data[1], names = data[0])
+        hdu = fits.table_to_hdu(t)
+        if hdr:
+            for key, val in hdr.items():
+                hdu.header[key] = val
+        if hdrcomments:
+            for key, val in hdrcomments.items():
+                hdu.header.comments[key] = val
+    else:
+        hdu = fits.PrimaryHDU()
+        hdu.data = data
+    hdu.writeto(fitsfile, overwrite = ow)
 
 # These things are Geant4-source-specific, so should be
 # written to header of rawpix file. Probably.
@@ -113,13 +134,13 @@ for filename in sys.argv[1:] :
 
     # allocate output arrays, which are pixel-based
     pix_primid = np.zeros(numrows, dtype=np.uint32)
-    pix_detid = np.zeros(numrows, dtype=np.uint8) + 8   # just to make sure this gets set
+    pix_detid = np.zeros(numrows, dtype=np.uint8) + 255   # just to make sure this gets set
     pix_rawx = np.zeros(numrows, dtype=np.uint16)
     pix_rawy = np.zeros(numrows, dtype=np.uint16)
     pix_actx = np.zeros(numrows, dtype=np.uint16)
     pix_acty = np.zeros(numrows, dtype=np.uint16)
     pix_edep = np.zeros(numrows, dtype=np.float32)
-    pix_pdg = np.zeros(numrows, dtype=np.uint16)
+    pix_partype = np.zeros(numrows, dtype=np.uint16)
     pix_primtype = np.zeros(numrows, dtype=np.uint8)
     pix_runid = np.zeros(numrows, dtype=np.uint16) + runid
 
@@ -191,10 +212,10 @@ for filename in sys.argv[1:] :
     img_detid[600:,586:] = 1
 
     # initialize 2D pixel array for summed deposited energy and the secondary 
-    # particle types ('pdg') responsible; need enough for 0.13mm pixels
+    # particle types ('partype') responsible; need enough for 0.13mm pixels
     # in 78x76.15mm DEPFETS, which is really 600x586
     img_edep = np.zeros(img_detid.shape, dtype=np.float32)
-    img_pdg = np.zeros(img_detid.shape, dtype=np.uint16)
+    img_partype = np.zeros(img_detid.shape, dtype=np.uint16)
 
     # loop through primids
     splitstep = 0
@@ -213,7 +234,7 @@ for filename in sys.argv[1:] :
         numsteps = indx.sum()
 
         img_edep = img_edep * 0
-        img_pdg = img_pdg * 0
+        img_partype = img_partype * 0
 
         #print(f'### {ii+1} of {numprims_interact}: Primary {this_primid} has {numsteps} steps.')
 
@@ -222,7 +243,7 @@ for filename in sys.argv[1:] :
             #print(f'### {jj}: {particletype[indx].iloc[jj]}, {process[indx].iloc[jj]}, X = {prex[indx].iloc[jj]}->{postx[indx].iloc[jj]}, Y = {prey[indx].iloc[jj]}->{posty[indx].iloc[jj]}') 
 
             # get the secondary particle type
-            this_pdg = ptypes.get(particletype[indx].iloc[jj], 0)
+            this_partype = ptypes.get(particletype[indx].iloc[jj], 0)
             this_prex = prex[indx].iloc[jj]
             this_prey = prey[indx].iloc[jj]
             this_postx = postx[indx].iloc[jj]
@@ -233,14 +254,14 @@ for filename in sys.argv[1:] :
             if (this_prex == this_postx) and (this_prey == this_posty) :
                 #print(f'### Ionizing within one pixel.')
                 img_edep[this_postx,this_posty] = img_edep[this_postx,this_posty] + this_edep
-                img_pdg[this_postx,this_posty] = np.bitwise_or(img_pdg[this_postx,this_posty], this_pdg)
+                img_partype[this_postx,this_posty] = np.bitwise_or(img_partype[this_postx,this_posty], this_partype)
 
             # If the particle was a photon and it just didn't exit the volume, dump all the
             # energy deposited in the post-step pixel
             elif (particletype[indx].iloc[jj] == "gamma") and (process[indx].iloc[jj] != "CoupledTransportation") :
                 #print(f'### Photon.')
                 img_edep[this_postx,this_posty] = img_edep[this_postx,this_posty] + this_edep
-                img_pdg[this_postx,this_posty] = np.bitwise_or(img_pdg[this_postx,this_posty], this_pdg)
+                img_partype[this_postx,this_posty] = np.bitwise_or(img_partype[this_postx,this_posty], this_partype)
 
             # For ionizing steps that traversed more then 1 pixel, bop along the
             # step in n 5µm substeps and dump 1/nth of the energy in the pixel that lives 
@@ -266,14 +287,14 @@ for filename in sys.argv[1:] :
                 # dump it
                 for kk in range(nsubsteps) :
                     img_edep[pos_pixel[kk,0],pos_pixel[kk,1]] = img_edep[pos_pixel[kk,0],pos_pixel[kk,1]] + subedep
-                    img_pdg[pos_pixel[kk,0],pos_pixel[kk,1]] = np.bitwise_or(img_pdg[pos_pixel[kk,0],pos_pixel[kk,1]], this_pdg)
+                    img_partype[pos_pixel[kk,0],pos_pixel[kk,1]] = np.bitwise_or(img_partype[pos_pixel[kk,0],pos_pixel[kk,1]], this_partype)
 
         # convert images into pixel lists
         indx = (img_edep > 0)
         this_actx = np.argwhere(indx)[:,0]
         this_acty = np.argwhere(indx)[:,1]
         this_edep = img_edep[indx]
-        this_pdg = img_pdg[indx]
+        this_partype = img_partype[indx]
         this_detid = img_detid[indx]
 
         # put it all in the output arrays
@@ -288,7 +309,7 @@ for filename in sys.argv[1:] :
         pix_actx[this_startrow:this_endrow] = this_actx
         pix_acty[this_startrow:this_endrow] = this_acty
         pix_edep[this_startrow:this_endrow] = this_edep
-        pix_pdg[this_startrow:this_endrow] = this_pdg
+        pix_partype[this_startrow:this_endrow] = this_partype
         pix_primtype[this_startrow:this_endrow] = this_primtype
         # these are already initialized with correct values
         #pix_runid[this_startrow:this_endrow] = this_runid
@@ -305,7 +326,7 @@ for filename in sys.argv[1:] :
     pix_actx = pix_actx[0:numrows]
     pix_acty = pix_acty[0:numrows]
     pix_edep = pix_edep[0:numrows]
-    pix_pdg = pix_pdg[0:numrows]
+    pix_partype = pix_partype[0:numrows]
     pix_primtype = pix_primtype[0:numrows]
     pix_runid = pix_runid[0:numrows]
 
@@ -325,7 +346,7 @@ for filename in sys.argv[1:] :
     pix_actx = pix_actx[indx]
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
-    pix_pdg = pix_pdg[indx]
+    pix_partype = pix_partype[indx]
     pix_primtype = pix_primtype[indx]
     pix_runid = pix_runid[indx]
     # remove the gaps
@@ -337,7 +358,7 @@ for filename in sys.argv[1:] :
     pix_actx = pix_actx[indx]
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
-    pix_pdg = pix_pdg[indx]
+    pix_partype = pix_partype[indx]
     pix_primtype = pix_primtype[indx]
     pix_runid = pix_runid[indx]
 
@@ -350,25 +371,29 @@ for filename in sys.argv[1:] :
 
     # fix the num. of interacting primaries to only those in the sensitive area
 
-    # make a table and save it to a FITS HDU
-    pix_tab = Table([pix_newprimid, pix_primid, pix_detid, pix_rawx, pix_rawy, 
-        pix_actx, pix_acty, pix_edep, pix_pdg, pix_primtype, pix_runid], 
-        names=('PRIMID', 'OPRIMID', 'DETID', 'RAWX', 'RAWY', 'ACTX', 'ACTY', 'EDEP', 'PDG', 'PRIMTYPE', 'RUNID'))
-    hdu_pix = fits.table_to_hdu(pix_tab)
-
     # add header keywords
-    hdu_pix.header['SPH_RAD'] = sphere_radius
-    hdu_pix.header.comments['SPH_RAD'] = 'Radius of Geant4 source sphere in cm'
-    hdu_pix.header['NPRI_GEN'] = numprims_gen
-    hdu_pix.header.comments['NPRI_GEN'] = 'Number of primaries generated'
-    hdu_pix.header['NPRI_INT'] = numprims_interact
-    hdu_pix.header.comments['NPRI_INT'] = 'Number of primaries producing signal'
+    hdr = { 
+            'SPH_RAD' : sphere_radius,
+            'NPRI_GEN' : numprims_gen,
+            'NPRI_INT' : numprims_interact }
+    hdrcomments = {
+            'SPH_RAD' : 'Radius of Geant4 source sphere in cm',
+            'NPRI_GEN' : 'Number of primaries generated',
+            'NPRI_INT' : 'Number of primaries producing signal' }
 
-    # put together the FITS HDUs into an HDUList
-    hdu_primary = fits.PrimaryHDU()
-    hdulist = fits.HDUList([hdu_primary, hdu_pix])
-
-    # write FITS file
-    hdulist.writeto(outfile, overwrite=True)
+    # make a table and save it to a FITS HDU
+    wfits( (['PRIMID', 'OPRIMID', 'DETID', 'RAWX', 'RAWY', 'ACTX', 'ACTY', 'EDEP', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
+        [pix_newprimid.astype(np.uint32),
+        pix_primid.astype(np.uint32),
+        pix_detid.astype(np.uint8),
+        pix_rawx.astype(np.uint16),
+        pix_rawy.astype(np.uint16),
+        pix_actx.astype(np.uint16),
+        pix_acty.astype(np.uint16),
+        pix_edep.astype(np.single),
+        pix_partype.astype(np.uint8),
+        pix_primtype.astype(np.uint8),
+        pix_runid.astype(np.uint64)]), 
+        outfile, hdr=hdr, hdrcomments=hdrcomments)
 
 exit()

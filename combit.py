@@ -17,9 +17,13 @@
 # can be considered a simulated WFI observation obtained from the full
 # Geant4 run.
 #
+# EDM Tue Dec 22 11:38:33 EST 2020
+# Removed PHAS column from combined event list, since astropy.table isn't
+# happy with it and it adds a huge amount to file size.
+#
 # EDM Mon Dec 21 17:05:43 EST 2020
-# First Python version, converted from Perl and now not appending to
-# improve performance.
+# First Python version, converted from Perl and now allocating arrays
+# rather than appending to improve performance.
 
 import numpy as np
 from astropy.io import fits
@@ -98,18 +102,15 @@ for framefits in filenames :
     this_numrows_evt = len(this_evt)
     this_numrows_blobs = len(this_blobs)
 
-    # grab header keywords from frame FITS and assume they're the same in other FITS
+    # grab header keywords from frame FITS and assume they're the same in
+    # other FITS
     this_sphere_radius = this_frames.meta['SPH_RAD']
     this_numprims_gen = this_frames.meta['NPRI_GEN']
     this_numprims_interact = this_frames.meta['NPRI_INT']
     this_nframes = this_frames.meta['NFRAMES']
     this_nblobs = this_frames.meta['NBLOBS']
     this_texpframe = this_frames.meta['TEXPFRAM']
-
-    # calculate and check things
     this_texp = this_texpframe * this_nframes
-    #if (this_numframes != this_nframes) :
-    #    print(f'### WARNING: FITS header num. frames {this_nframes} != num. frame rows {this_numframes}.')
 
     # increment things
     this_frames['FRAME'] += offset_frame
