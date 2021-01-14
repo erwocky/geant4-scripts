@@ -13,6 +13,9 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Fri Jan  8 13:50:08 EST 2021
+# Changed output column EDEP to ENERGY. Probably will break stuff.
+#
 # EDM Tue Dec 22 09:52:18 EST 2020
 # Updated output FITS data types. Implemented 'wfits()' function Brian made
 # to simplify FITS writing. 'ptype'->'partype' to eliminate confusion with
@@ -66,7 +69,8 @@ substep_size = 5.
 # (primary or secondary) that deposits energy;
 # can be bit-wise added for multiple secondaries
 # depositing in the same pixel for the same primary
-ptypes = { 'proton' : 1,
+ptypes = { 'unknown' : 0,
+           'proton' : 1,
            'e-' : 2,
            'gamma' : 4,
            'e+' : 8,
@@ -382,7 +386,8 @@ for filename in sys.argv[1:] :
             'NPRI_INT' : 'Number of primaries producing signal' }
 
     # make a table and save it to a FITS HDU
-    wfits( (['PRIMID', 'OPRIMID', 'DETID', 'RAWX', 'RAWY', 'ACTX', 'ACTY', 'EDEP', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
+    wfits( (['PRIMID', 'OPRIMID', 'DETID', 'RAWX', 'RAWY', 'ACTX', 'ACTY',
+        'ENERGY', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
         [pix_newprimid.astype(np.uint32),
         pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),

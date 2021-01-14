@@ -26,6 +26,13 @@
 #       5 or more pixels (set by npixthresh), or any number of pixels
 #       including at least one pixel above the MIP threshold.
 #
+# EDM Thu Jan 14 14:44:59 EST 2021
+# To replicate OU processing, make sure to use the correct values
+# of act[x,y]_[min,max], which are commented out below.
+#
+# EDM Fri Jan  8 13:50:08 EST 2021
+# Changed input column EDEP to ENERGY. Probably will break stuff.
+#
 # EDM Tue Dec 22 08:52:12 EST 2020
 # Updated output FITS table data types to reduce file size.  Also
 # eliminated EVTTYPE, since it isn't useful and similar filtering can be
@@ -151,19 +158,20 @@ rng = np.random.RandomState(1234)
 
 # temporary variables
 x, y = 0, 0
-
-# 0-511; indexed by detector number 0-3
 x_offset = 0
 y_offset = 0
-#x_offset = 513
-#y_offset = 513
-#imgsize = 1027
+
+# use these for MIT data
 actx_min = 59
 actx_max = 1143
 acty_min = 52
 acty_max = 1121
-#xydep_min = -513
-#xydep_max = 513
+
+# use these for OU data for now
+#actx_min = 0
+#actx_max = 1026
+#acty_min = 0
+#acty_max = 1026
 
 date = datetime.datetime.now().astimezone()
 date_string = date.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
@@ -196,7 +204,7 @@ for filename in sys.argv[1:] :
     rawpix = Table.read(infile)
     pix_actx = rawpix['ACTX']
     pix_acty = rawpix['ACTY']
-    pix_energy = rawpix['EDEP']
+    pix_energy = rawpix['ENERGY']
     pix_runid = rawpix['RUNID']
     pix_detid = rawpix['DETID']
     pix_primid = rawpix['PRIMID']
