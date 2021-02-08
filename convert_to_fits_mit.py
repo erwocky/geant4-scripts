@@ -13,6 +13,9 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Mon Feb  8 14:33:30 EST 2021
+# Eliminated RAWX and RAWY since they're not used.
+#
 # EDM Fri Jan  8 13:50:08 EST 2021
 # Changed output column EDEP to ENERGY. Probably will break stuff.
 #
@@ -139,8 +142,6 @@ for filename in sys.argv[1:] :
     # allocate output arrays, which are pixel-based
     pix_primid = np.zeros(numrows, dtype=np.uint32)
     pix_detid = np.zeros(numrows, dtype=np.uint8) + 255   # just to make sure this gets set
-    pix_rawx = np.zeros(numrows, dtype=np.uint16)
-    pix_rawy = np.zeros(numrows, dtype=np.uint16)
     pix_actx = np.zeros(numrows, dtype=np.uint16)
     pix_acty = np.zeros(numrows, dtype=np.uint16)
     pix_edep = np.zeros(numrows, dtype=np.float32)
@@ -206,8 +207,7 @@ for filename in sys.argv[1:] :
     delta_x = postx - prex
     delta_y = posty - prey
 
-    # initialize the 2D look-up tables of RAWX and RAWY,
-    # defined as DEPFET quadrant pixels 0-511,0-511
+    # initialize the 2D look-up tables of DETID # indexed by ACTX and ACTY
     # DETID is 0,1,2,3 for A,B,C,D.
     img_detid = np.full([1205,1205], 8, dtype=np.byte)
     img_detid[:600,:586] = 3
@@ -308,8 +308,6 @@ for filename in sys.argv[1:] :
         pix_primid[this_startrow:this_endrow] = this_primid
         # gotta figure these out
         pix_detid[this_startrow:this_endrow] = this_detid
-        #pix_rawx[this_startrow:this_endrow] = this_rawx
-        #pix_rawy[this_startrow:this_endrow] = this_rawy
         pix_actx[this_startrow:this_endrow] = this_actx
         pix_acty[this_startrow:this_endrow] = this_acty
         pix_edep[this_startrow:this_endrow] = this_edep
@@ -325,8 +323,6 @@ for filename in sys.argv[1:] :
     numrows = this_startrow
     pix_primid = pix_primid[0:numrows]
     pix_detid = pix_detid[0:numrows]
-    pix_rawx = pix_rawx[0:numrows]
-    pix_rawy = pix_rawy[0:numrows]
     pix_actx = pix_actx[0:numrows]
     pix_acty = pix_acty[0:numrows]
     pix_edep = pix_edep[0:numrows]
@@ -345,8 +341,6 @@ for filename in sys.argv[1:] :
     indx = (pix_actx>=59) & (pix_actx<=1143) & (pix_acty>=52) & (pix_acty<=1121)
     pix_primid = pix_primid[indx]
     pix_detid = pix_detid[indx]
-    pix_rawx = pix_rawx[indx]
-    pix_rawy = pix_rawy[indx]
     pix_actx = pix_actx[indx]
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
@@ -357,8 +351,6 @@ for filename in sys.argv[1:] :
     indx = ( (pix_actx<=570) | (pix_actx>=632) ) & ( (pix_acty<=563) | (pix_acty>=610) )
     pix_primid = pix_primid[indx]
     pix_detid = pix_detid[indx]
-    pix_rawx = pix_rawx[indx]
-    pix_rawy = pix_rawy[indx]
     pix_actx = pix_actx[indx]
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
@@ -386,13 +378,11 @@ for filename in sys.argv[1:] :
             'NPRI_INT' : 'Number of primaries producing signal' }
 
     # make a table and save it to a FITS HDU
-    wfits( (['PRIMID', 'OPRIMID', 'DETID', 'RAWX', 'RAWY', 'ACTX', 'ACTY',
+    wfits( (['PRIMID', 'OPRIMID', 'DETID', 'ACTX', 'ACTY',
         'ENERGY', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
         [pix_newprimid.astype(np.uint32),
         pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),
-        pix_rawx.astype(np.uint16),
-        pix_rawy.astype(np.uint16),
         pix_actx.astype(np.uint16),
         pix_acty.astype(np.uint16),
         pix_edep.astype(np.single),

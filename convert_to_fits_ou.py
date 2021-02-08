@@ -13,6 +13,12 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Mon Feb  8 14:36:42 EST 2021
+# Updated pixel ACTX/ACTY offsets for new OU data (vs. the data provided 
+# by Jonathan Keelan in 2018). Also now assumes same 512x512 active region
+# for each DEPFET as the MIT version, which comes from 
+# the document 'DEPFET_sensitive_area_v7.pdf'.
+#
 # EDM Thu Jan 14 14:46:40 EST 2021
 # Now ignores pixels with no signal.
 #
@@ -55,16 +61,34 @@ def wfits(data, fitsfile, ow=True, hdr=None, hdrcomments=None):
 # These things are Geant4-source-specific, so should be
 # written to header of rawpix file. Probably.
 sphere_radius = 70. # radius of boundary sphere in cm
-numprims_gen = int(1e6) # num. primaries per run, also size of allocated arrays
+#numprims_gen = int(1e6) # num. primaries per run
+                         # now calculated by rounding off largest primid to one sig digit
+array_size = int(1e7)
 primary_type = 'proton'
-# 0-511; indexed by detector number 0-3
-x_offset = 513
-y_offset = 513
-imgsize = 1027
-actmin = 0
-actmax = 1026
-xydep_min = -513
-xydep_max = 513
+
+# Updated EDM Mon Feb  8 14:24:12 EST 2021
+# Active DEPFET regions are the following (same as MIT):
+#       ACTX        ACTY
+#   D   59:570      52:563
+#   C   59:570      610:1121
+#   A   632:1143    52:563
+#   B   632:1143    610:1121
+# Current OU coords run: X=-592:+582, Y=-807:+397, inclusive.
+# This appears to contain 1175x1205 130-µm pixels, as expected
+# from 'DEPFET_sensitive_area_v7.pdf'. So I think I just need
+# to shift them so LLC is at X,Y=0,0, and then filter out the
+# same active DEPFET parts as in the MIT version.
+x_offset = 592
+y_offset = 807
+# Old OU offsets (for J. Keelan data from 2018):
+#x_offset = 513
+#y_offset = 513
+# Not used but left here for safe-keeping:
+#imgsize = 1027
+#actmin = 0
+#actmax = 1026
+#xydep_min = -513
+#xydep_max = 513
 
 # dictionary of particle types
 # these are the same codes as the PDG in MPE data
@@ -108,14 +132,14 @@ for filename in sys.argv[1:] :
         continue
 
     # allocate output arrays, which are pixel-based
-    pix_primid = np.zeros(numprims_gen, dtype=np.uint32)
-    pix_detid = np.zeros(numprims_gen, dtype=np.uint8) + 255 # just to make sure this gets set
-    pix_actx = np.zeros(numprims_gen, dtype=np.uint16)
-    pix_acty = np.zeros(numprims_gen, dtype=np.uint16)
-    pix_energy = np.zeros(numprims_gen, dtype=np.float32)
-    pix_partype = np.zeros(numprims_gen, dtype=np.uint16)
-    pix_primtype = np.zeros(numprims_gen, dtype=np.uint8) + ptypes[primary_type]
-    pix_runid = np.zeros(numprims_gen, dtype=np.uint16) + this_runid
+    pix_primid = np.zeros(array_size, dtype=np.uint32)
+    pix_detid = np.zeros(array_size, dtype=np.uint8) + 255 # just to make sure this gets set
+    pix_actx = np.zeros(array_size, dtype=np.int16)
+    pix_acty = np.zeros(array_size, dtype=np.int16)
+    pix_energy = np.zeros(array_size, dtype=np.float32)
+    pix_partype = np.zeros(array_size, dtype=np.uint16)
+    pix_primtype = np.zeros(array_size, dtype=np.uint8) + ptypes[primary_type]
+    pix_runid = np.zeros(array_size, dtype=np.uint16) + this_runid
 
     this_pix = 0
 
@@ -155,8 +179,8 @@ for filename in sys.argv[1:] :
                 else: 
                     # skip it if it's outside the 512x512 region of a quad
                     this_x, this_y = int(fields[0]), int(fields[1])
-                    if this_x<xydep_min or this_y<xydep_min or this_x>xydep_max or this_y>xydep_max:
-                        continue 
+                    #if this_x<xydep_min or this_y<xydep_min or this_x>xydep_max or this_y>xydep_max:
+                    #    continue 
                     # skip it if the energy deposited is zero
                     this_energy = float(fields[2])
                     if (this_energy <= 0) :
@@ -177,6 +201,35 @@ for filename in sys.argv[1:] :
                     this_pix += 1
 
     # done primary-by-primary processing
+
+    # eliminate signal outside of the 512-pixel active region of each DEPFET,
+    # as defined above
+    #       ACTX        ACTY
+    #   D   59:570      52:563
+    #   C   59:570      610:1121
+    #   A   632:1143    52:563
+    #   B   632:1143    610:1121
+    # remove outer ring
+    indx = (pix_actx>=59) & (pix_actx<=1143) & (pix_acty>=52) & (pix_acty<=1121)
+    pix_primid = pix_primid[indx]
+    pix_detid = pix_detid[indx]
+    pix_actx = pix_actx[indx]
+    pix_acty = pix_acty[indx]
+    pix_energy = pix_energy[indx]
+    pix_partype = pix_partype[indx]
+    pix_primtype = pix_primtype[indx]
+    pix_runid = pix_runid[indx]
+    # remove the gaps
+    indx = ( (pix_actx<=570) | (pix_actx>=632) ) & ( (pix_acty<=563) | (pix_acty>=610) )
+    pix_primid = pix_primid[indx]
+    pix_detid = pix_detid[indx]
+    pix_actx = pix_actx[indx]
+    pix_acty = pix_acty[indx]
+    pix_energy = pix_energy[indx]
+    pix_partype = pix_partype[indx]
+    pix_primtype = pix_primtype[indx]
+    pix_runid = pix_runid[indx]
+
     # lop off unused parts of arrays
     numpix = this_pix
     pix_primid = pix_primid[0:numpix]
@@ -187,6 +240,12 @@ for filename in sys.argv[1:] :
     pix_partype = pix_partype[0:numpix]
     pix_primtype = pix_primtype[0:numpix]
     pix_runid = pix_runid[0:numpix]
+
+    # theoretically, the number of primaries generated for a run
+    # should be the highest primid rounded to one significant digit
+    def RoundToSigDig (x, a) :
+        return round( x, (-int(np.floor(np.log10(abs(x)))) + (a-1)) )
+    numprims_gen = int( RoundToSigDig(pix_primid.max(), 1) )
 
     # done loop through quadrant data files for this run
     uniq_primid = np.unique(pix_primid)
@@ -210,8 +269,8 @@ for filename in sys.argv[1:] :
     wfits( (['PRIMID', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
         [pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),
-        pix_actx.astype(np.uint16),
-        pix_acty.astype(np.uint16),
+        pix_actx.astype(np.int16),
+        pix_acty.astype(np.int16),
         pix_energy.astype(np.single),
         pix_partype.astype(np.uint8),
         pix_primtype.astype(np.uint8),
