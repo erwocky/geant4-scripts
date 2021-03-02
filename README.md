@@ -18,10 +18,9 @@ Includes:
 * Tests to compare the two (`devel/testing_txt` folder)
 
 Notes on usage:
-* The pre-processing script only works on the Geant4 output format
-  specified, in this case MIT. Pre-processing scripts for OU format
-  (comma-separated text files) and MPE format (ROOT files) are under
-  construction.
+* The pre-processing scripts only work on the Geant4 output format
+  specified, in this case MIT and OU. A pre-processing script for 
+  MPE format (ROOT files) is under construction.
 * The pre-processing script is designed to process a list of files called as
   arguments, e.g.:
   ```
