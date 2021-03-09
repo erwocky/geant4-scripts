@@ -13,6 +13,13 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Tue Mar  9 13:11:35 EST 2021
+# Added SECPARTYPE, which records the particle type of the particle that
+# entered the detector and ultimately led to the energy deposition. This
+# was mostly added for the MIT version, and so for OU we just copy 
+# PARTYPE to the SECPARTYPE column, since (I think) that's what it is 
+# anyway. Otherwise the event finder would fail.
+#
 # EDM Mon Feb  8 14:36:42 EST 2021
 # Updated pixel ACTX/ACTY offsets for new OU data (vs. the data provided 
 # by Jonathan Keelan in 2018). Also now assumes same 512x512 active region
@@ -266,12 +273,13 @@ for filename in sys.argv[1:] :
             'NPRI_INT' : 'Number of primaries producing signal' }
 
     # make a table and save it to a FITS HDU
-    wfits( (['PRIMID', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
+    wfits( (['PRIMID', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'RUNID'],
         [pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),
         pix_actx.astype(np.int16),
         pix_acty.astype(np.int16),
         pix_energy.astype(np.single),
+        pix_partype.astype(np.uint8),
         pix_partype.astype(np.uint8),
         pix_primtype.astype(np.uint8),
         pix_runid.astype(np.uint64)]), 

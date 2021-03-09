@@ -13,6 +13,15 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Tue Mar  9 13:11:35 EST 2021
+# Added SECPARTYPE, which records the particle type of the particle that
+# entered the detector and ultimately led to the energy deposition. This
+# can be the primary or an external secondary, and like PARTYPE it is
+# bit-wise added so multiple particle types can be recorded (but not
+# multiples of the same particle). PARTYPE encodes final particles, and
+# in may cases includes electrons ionized by the proton within the 
+# detector and immediately dumping their energy.
+#
 # EDM Mon Feb  8 14:33:30 EST 2021
 # Eliminated RAWX and RAWY since they're not used.
 #
@@ -34,6 +43,9 @@ import os, sys, glob, re
 from astropy.table import Table
 from astropy.io import fits
 import pandas as pd
+
+# don't truncate printed arrays
+np.set_printoptions(threshold=sys.maxsize)
 
 num_args = len(sys.argv) - 1    
 if num_args < 1:
@@ -146,6 +158,7 @@ for filename in sys.argv[1:] :
     pix_acty = np.zeros(numrows, dtype=np.uint16)
     pix_edep = np.zeros(numrows, dtype=np.float32)
     pix_partype = np.zeros(numrows, dtype=np.uint16)
+    pix_secpartype = np.zeros(numrows, dtype=np.uint16)
     pix_primtype = np.zeros(numrows, dtype=np.uint8)
     pix_runid = np.zeros(numrows, dtype=np.uint16) + runid
 
@@ -218,8 +231,11 @@ for filename in sys.argv[1:] :
     # initialize 2D pixel array for summed deposited energy and the secondary 
     # particle types ('partype') responsible; need enough for 0.13mm pixels
     # in 78x76.15mm DEPFETS, which is really 600x586
+    # 'partype' encodes all particles that deposited energy
+    # 'sectype' encodes all particles produced outside the DEPFET that eventually deposited energy
     img_edep = np.zeros(img_detid.shape, dtype=np.float32)
     img_partype = np.zeros(img_detid.shape, dtype=np.uint16)
+    img_secpartype = np.zeros(img_detid.shape, dtype=np.uint16)
 
     # loop through primids
     splitstep = 0
@@ -237,8 +253,64 @@ for filename in sys.argv[1:] :
         # number of steps in this primary
         numsteps = indx.sum()
 
+        # get 'these' steps for this_primary
+        these_parent = parent[indx]
+        these_pid = pid[indx]
+        these_particletype = particletype[indx]
+        these_secparticletype = these_particletype.copy()
+        these_process = process[indx]
+        these_prex = prex[indx]
+        these_prey = prey[indx]
+        these_postx = postx[indx]
+        these_posty = posty[indx]
+        these_prex_mm = prex_mm[indx]
+        these_prey_mm = prey_mm[indx]
+        these_prez_mm = prez_mm[indx]
+        these_postx_mm = postx_mm[indx]
+        these_posty_mm = posty_mm[indx]
+        these_postz_mm = postz_mm[indx]
+        these_edep = edep[indx]
+
+        # find the unique secondaries; these are PIDs with parents that don't show up in pid
+        indx_notsecs = np.isin(these_parent, these_pid)
+        indx_secs = np.invert(indx_notsecs)
+        num_notsecs = indx_notsecs.sum()
+        num_secs = indx_secs.sum()
+        #print(f'##### PRIMID {this_primid} ########################################')
+        #with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+        #    print(f'{pd.concat([these_parent, these_pid, these_secparticletype], axis=1)}')
+
+        # an odd thing, but make the secondaries their own parents
+        these_parent[indx_secs] = these_pid[indx_secs]
+        my_secid = np.unique(these_pid[indx_secs])
+
+        #print(f'### PRIMID {this_primid}')
+        #print(f'{num_secs}, {num_notsecs}')
+        #if (this_primid == 21591) :
+        #    print(f'{these_parent}')
+
+        # now loop through the set of steps from non-secondaries,
+        # trace back one step and reassign parent, then iterate
+        # actually don't need the iteration because it works in sequence
+        num_tofix = num_notsecs
+        #print(f'Num. to fix: {num_tofix}')
+        #with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+        #    print(f'{pd.concat([these_parent, these_pid, these_secparticletype], axis=1)}')
+        for my_id in np.unique(these_pid[indx_notsecs]) :
+            my_old_parent = these_parent[(these_pid==my_id)].iloc[0] 
+            my_new_parent = these_parent[(these_pid==my_old_parent)].iloc[0]
+            these_parent[(these_pid==my_id)] = my_new_parent
+            these_secparticletype[(these_pid==my_id)] = these_particletype[(these_pid==my_new_parent)].iloc[0]
+        indx_notsecs = np.isin(these_parent, my_secid, invert=True)
+        num_tofix = indx_notsecs.sum()
+        #print(f'Num. to fix: {num_tofix}')
+        #with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
+        #    print(f'{pd.concat([these_parent, these_pid, these_secparticletype], axis=1)}')
+
+
         img_edep = img_edep * 0
         img_partype = img_partype * 0
+        img_secpartype = img_secpartype * 0
 
         #print(f'### {ii+1} of {numprims_interact}: Primary {this_primid} has {numsteps} steps.')
 
@@ -246,26 +318,38 @@ for filename in sys.argv[1:] :
 
             #print(f'### {jj}: {particletype[indx].iloc[jj]}, {process[indx].iloc[jj]}, X = {prex[indx].iloc[jj]}->{postx[indx].iloc[jj]}, Y = {prey[indx].iloc[jj]}->{posty[indx].iloc[jj]}') 
 
-            # get the secondary particle type
-            this_partype = ptypes.get(particletype[indx].iloc[jj], 0)
-            this_prex = prex[indx].iloc[jj]
-            this_prey = prey[indx].iloc[jj]
-            this_postx = postx[indx].iloc[jj]
-            this_posty = posty[indx].iloc[jj]
-            this_edep = edep[indx].iloc[jj]
+            # get info for 'this' step
+            this_particletype = these_particletype.iloc[jj]
+            this_partype = ptypes.get(this_particletype, 0)
+            this_secparticletype = these_secparticletype.iloc[jj]
+            this_secpartype = ptypes.get(this_secparticletype, 0)
+            this_process = these_process.iloc[jj]
+            this_prex = these_prex.iloc[jj]
+            this_prey = these_prey.iloc[jj]
+            this_postx = these_postx.iloc[jj]
+            this_posty = these_posty.iloc[jj]
+            this_prex_mm = these_prex_mm.iloc[jj]
+            this_prey_mm = these_prey_mm.iloc[jj]
+            this_prez_mm = these_prez_mm.iloc[jj]
+            this_postx_mm = these_postx_mm.iloc[jj]
+            this_posty_mm = these_posty_mm.iloc[jj]
+            this_postz_mm = these_postz_mm.iloc[jj]
+            this_edep = these_edep.iloc[jj]
 
             # For any steps that stayed within a single pixel, dump all the deposited enegy in that pixel
             if (this_prex == this_postx) and (this_prey == this_posty) :
                 #print(f'### Ionizing within one pixel.')
                 img_edep[this_postx,this_posty] = img_edep[this_postx,this_posty] + this_edep
                 img_partype[this_postx,this_posty] = np.bitwise_or(img_partype[this_postx,this_posty], this_partype)
+                img_secpartype[this_postx,this_posty] = np.bitwise_or(img_secpartype[this_postx,this_posty], this_secpartype)
 
             # If the particle was a photon and it just didn't exit the volume, dump all the
             # energy deposited in the post-step pixel
-            elif (particletype[indx].iloc[jj] == "gamma") and (process[indx].iloc[jj] != "CoupledTransportation") :
+            elif (this_particletype == "gamma") and (this_process != "CoupledTransportation") :
                 #print(f'### Photon.')
                 img_edep[this_postx,this_posty] = img_edep[this_postx,this_posty] + this_edep
                 img_partype[this_postx,this_posty] = np.bitwise_or(img_partype[this_postx,this_posty], this_partype)
+                img_secpartype[this_postx,this_posty] = np.bitwise_or(img_secpartype[this_postx,this_posty], this_secpartype)
 
             # For ionizing steps that traversed more then 1 pixel, bop along the
             # step in n 5µm substeps and dump 1/nth of the energy in the pixel that lives 
@@ -275,8 +359,8 @@ for filename in sys.argv[1:] :
                 splitstep = splitstep + 1
 
                 # starting and ending position of the full step, in mm
-                pos1 = np.array([ prex_mm[indx].iloc[jj], prey_mm[indx].iloc[jj], prez_mm[indx].iloc[jj] ])
-                pos2 = np.array([ postx_mm[indx].iloc[jj], posty_mm[indx].iloc[jj], postz_mm[indx].iloc[jj] ])
+                pos1 = np.array([ this_prex_mm, this_prey_mm, this_prez_mm ])
+                pos2 = np.array([ this_postx_mm, this_posty_mm, this_postz_mm ])
 
                 # chop that up into 'substep_size'-µm substeps into which we'll dump charge
                 nsubsteps = np.ceil(slen[indx].iloc[jj]/substep_size).astype(int)
@@ -292,6 +376,7 @@ for filename in sys.argv[1:] :
                 for kk in range(nsubsteps) :
                     img_edep[pos_pixel[kk,0],pos_pixel[kk,1]] = img_edep[pos_pixel[kk,0],pos_pixel[kk,1]] + subedep
                     img_partype[pos_pixel[kk,0],pos_pixel[kk,1]] = np.bitwise_or(img_partype[pos_pixel[kk,0],pos_pixel[kk,1]], this_partype)
+                    img_secpartype[pos_pixel[kk,0],pos_pixel[kk,1]] = np.bitwise_or(img_secpartype[pos_pixel[kk,0],pos_pixel[kk,1]], this_secpartype)
 
         # convert images into pixel lists
         indx = (img_edep > 0)
@@ -299,19 +384,20 @@ for filename in sys.argv[1:] :
         this_acty = np.argwhere(indx)[:,1]
         this_edep = img_edep[indx]
         this_partype = img_partype[indx]
+        this_secpartype = img_secpartype[indx]
         this_detid = img_detid[indx]
 
         # put it all in the output arrays
         this_endrow = this_startrow + indx.sum()
 
-        # allocate output arrays, which are pixel-based
+        # fill in pixel-based output arrays for this primary
         pix_primid[this_startrow:this_endrow] = this_primid
-        # gotta figure these out
         pix_detid[this_startrow:this_endrow] = this_detid
         pix_actx[this_startrow:this_endrow] = this_actx
         pix_acty[this_startrow:this_endrow] = this_acty
         pix_edep[this_startrow:this_endrow] = this_edep
         pix_partype[this_startrow:this_endrow] = this_partype
+        pix_secpartype[this_startrow:this_endrow] = this_secpartype
         pix_primtype[this_startrow:this_endrow] = this_primtype
         # these are already initialized with correct values
         #pix_runid[this_startrow:this_endrow] = this_runid
@@ -327,6 +413,7 @@ for filename in sys.argv[1:] :
     pix_acty = pix_acty[0:numrows]
     pix_edep = pix_edep[0:numrows]
     pix_partype = pix_partype[0:numrows]
+    pix_secpartype = pix_secpartype[0:numrows]
     pix_primtype = pix_primtype[0:numrows]
     pix_runid = pix_runid[0:numrows]
 
@@ -345,6 +432,7 @@ for filename in sys.argv[1:] :
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
     pix_partype = pix_partype[indx]
+    pix_secpartype = pix_secpartype[indx]
     pix_primtype = pix_primtype[indx]
     pix_runid = pix_runid[indx]
     # remove the gaps
@@ -355,6 +443,7 @@ for filename in sys.argv[1:] :
     pix_acty = pix_acty[indx]
     pix_edep = pix_edep[indx]
     pix_partype = pix_partype[indx]
+    pix_secpartype = pix_secpartype[indx]
     pix_primtype = pix_primtype[indx]
     pix_runid = pix_runid[indx]
 
@@ -379,7 +468,7 @@ for filename in sys.argv[1:] :
 
     # make a table and save it to a FITS HDU
     wfits( (['PRIMID', 'OPRIMID', 'DETID', 'ACTX', 'ACTY',
-        'ENERGY', 'PARTYPE', 'PRIMTYPE', 'RUNID'],
+        'ENERGY', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'RUNID'],
         [pix_newprimid.astype(np.uint32),
         pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),
@@ -387,6 +476,7 @@ for filename in sys.argv[1:] :
         pix_acty.astype(np.uint16),
         pix_edep.astype(np.single),
         pix_partype.astype(np.uint8),
+        pix_secpartype.astype(np.uint8),
         pix_primtype.astype(np.uint8),
         pix_runid.astype(np.uint64)]), 
         outfile, hdr=hdr, hdrcomments=hdrcomments)
