@@ -37,9 +37,8 @@
 # First version to read Rick's format of Geant4 output. Adapted from MPE
 # readit.py.
 
+import os, sys, glob, re, datetime
 import numpy as np
-import astropy
-import os, sys, glob, re
 from astropy.table import Table
 from astropy.io import fits
 import pandas as pd
@@ -93,6 +92,11 @@ ptypes = { 'unknown' : 0,
            'pi+' : 32,
            'neutron' : 64,
            'alpha' : 128 }
+
+date = datetime.datetime.now().astimezone()
+date_string = date.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
+print("############################################################")
+print(f"### Started {sys.argv[0]} on {date_string}")
 
 # loop through input filenames
 for filename in sys.argv[1:] :
@@ -150,6 +154,8 @@ for filename in sys.argv[1:] :
     # get unique primids and number of primaries that interact
     uniq_primid = np.unique(primid)
     numprims_interact = uniq_primid.size
+
+    print(f'### {numprims_interact} of {numprims_gen} generated primaries interacted.')
 
     # allocate output arrays, which are pixel-based
     pix_primid = np.zeros(numrows, dtype=np.uint32)
@@ -403,6 +409,11 @@ for filename in sys.argv[1:] :
         #pix_runid[this_startrow:this_endrow] = this_runid
 
         this_startrow = this_endrow
+
+        # keep us updated
+        if ((ii+1) % 10 == 0) :
+            print(f"### Run {runid}: done {ii+1} of {numprims_interact} primaries.")
+            pass
 
     # done primary-by-primary processing
     # lop off unused parts of arrays
