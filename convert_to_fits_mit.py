@@ -13,6 +13,12 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Thu Mar 11 08:45:41 EST 2021
+# Attempted to reduce memory usage by specifying dtypes in pandas DataFrame
+# and converting string columns to integers right away, since that's what
+# they become. Also no longer renaming DF columns to new variables, since 
+# it's never clear if they are views into the DF or copied as new Series.
+# 
 # EDM Tue Mar  9 13:11:35 EST 2021
 # Added SECPARTYPE, which records the particle type of the particle that
 # entered the detector and ultimately led to the energy deposition. This
@@ -42,9 +48,12 @@ import numpy as np
 from astropy.table import Table
 from astropy.io import fits
 import pandas as pd
+#import tracemalloc
+
+#tracemalloc.start()
 
 # don't truncate printed arrays
-np.set_printoptions(threshold=sys.maxsize)
+#np.set_printoptions(threshold=sys.maxsize)
 
 num_args = len(sys.argv) - 1    
 if num_args < 1:
@@ -67,6 +76,12 @@ def wfits(data, fitsfile, ow=True, hdr=None, hdrcomments=None):
         hdu = fits.PrimaryHDU()
         hdu.data = data
     hdu.writeto(fitsfile, overwrite = ow)
+
+# to map a string column to an integer column
+def strcol2intcol(strings, trans) :
+    if strings in trans :
+        return trans[strings]
+    return 0
 
 # These things are Geant4-source-specific, so should be
 # written to header of rawpix file. Probably.
@@ -93,6 +108,17 @@ ptypes = { 'unknown' : 0,
            'neutron' : 64,
            'alpha' : 128 }
 
+# processes; we only need the ones that affect
+# energy deposition
+proctypes = { 'unknown' : 0,
+              'CoupledTransportation' : 1 }
+
+# quadrants
+quadrants = { 'DEPFETA' : 0,
+              'DEPFETB' : 1,
+              'DEPFETC' : 2,
+              'DEPFETD' : 3 }
+
 date = datetime.datetime.now().astimezone()
 date_string = date.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
 print("############################################################")
@@ -101,15 +127,16 @@ print(f"### Started {sys.argv[0]} on {date_string}")
 # loop through input filenames
 for filename in sys.argv[1:] :
 
-    if not re.search('.*_StepLog_[0-9]+\.gdat[\.gz]*$', filename) : 
-        print(f'### Error: file {filename} does not look like a StepLog file, skipping.')
-        continue
+    # make sure filename exists and looks right
     if not os.path.isfile(filename) :
         print(f'### Error reading file {filename}, skipping.')
         continue
+    if not re.search('.*_StepLog_[0-9]+\.gdat[\.gz]*$', filename) : 
+        print(f'### Error: file {filename} does not look like a StepLog file, skipping.')
+        continue
+
 
     path = os.path.dirname(filename)
-
     g4stepfile = filename
     g4evtfile = re.sub('StepLog', 'EvtLog', g4stepfile)
     runid = int( re.sub('.*?([0-9]+)_StepLog_([0-9]+)\.gdat(\.gz)*$', r'\1\2', g4stepfile) )
@@ -119,40 +146,31 @@ for filename in sys.argv[1:] :
     print(f'### Event file  {g4evtfile}.')
     print(f'### Output file {outfile}.')
 
-    # open the Geant4 output files
-    g4evt = pd.read_csv(g4evtfile, sep='\s+')
-    g4step = pd.read_csv(g4stepfile, sep='\s+')
+    # open the Geant4 input files
+    g4evt = pd.read_csv(g4evtfile, sep='\s+', 
+            usecols=['Event', 'Particle'], dtype={'Event':np.uint32, 'Particle':str})
+    g4step = pd.read_csv(g4stepfile, sep='\s+', 
+            usecols=['Event', 'Volume', 'Parent', 'ID', 'SLen', 'Edep', 'Particle', 
+                'LPre-X', 'LPre-Y', 'LPre-Z', 'LPost-X', 'LPost-Y', 'LPost-Z', 'Process'], 
+            dtype={'Event':np.uint32, 'Volume':str, 'Parent':np.uint32, 'ID':np.uint32, 
+                'SLen':np.float32, 'Edep':np.float32, 'Particle':str, 'LPre-X':np.float32, 
+                'LPre-Y':np.float32, 'LPre-Z':np.float32, 'LPost-X':np.float32, 
+                'LPost-Y':np.float32, 'LPost-Z':np.float32, 'Process':str})
 
-    # sort out Geant4 event table
-    evt_primid = g4evt['Event']
-    evt_particletype = g4evt['Particle']
-    evt_energy = g4evt['Energy']
-
-    # sort out Geant4 step table
-    primid = g4step['Event']
-    depfet = g4step['Volume']
-    parent = g4step['Parent']
-    pid = g4step['ID']
-    step = g4step['Step']
-    slen = g4step['SLen']
-    edep = g4step['Edep']
-    particletype = g4step['Particle']
-    prex_mm = g4step['LPre-X']
-    prey_mm = g4step['LPre-Y']
-    prez_mm = g4step['LPre-Z']
-    postx_mm = g4step['LPost-X']
-    posty_mm = g4step['LPost-Y']
-    postz_mm = g4step['LPost-Z']
-    process = g4step['Process']
+    # convert string columns to integers here to save memory
+    g4evt['Particle'] = np.array(list(strcol2intcol(x, ptypes) for x in g4evt['Particle']), dtype=np.uint8)
+    g4step['Particle'] = np.array(list(strcol2intcol(x, ptypes) for x in g4step['Particle']), dtype=np.uint8)
+    g4step['Volume'] = np.array(list(strcol2intcol(x, quadrants) for x in g4step['Volume']), dtype=np.uint8)
+    g4step['Process'] = np.array(list(strcol2intcol(x, proctypes) for x in g4step['Process']), dtype=np.uint8)
 
     # number of rows in the step file
     numrows = g4step.shape[0]
 
     # total number of primaries generated
-    numprims_gen = evt_primid.size
+    numprims_gen = g4evt['Event'].size
 
     # get unique primids and number of primaries that interact
-    uniq_primid = np.unique(primid)
+    uniq_primid = np.unique(g4step['Event'])
     numprims_interact = uniq_primid.size
 
     print(f'### {numprims_interact} of {numprims_gen} generated primaries interacted.')
@@ -202,25 +220,25 @@ for filename in sys.argv[1:] :
     # g4step['LPost-Y'] -> posty_mm
     # 'D' is at origin, so coords don't need to be shifted
     # 'A' is shifted only in X
-    indx = (depfet == 'DEPFETA')
+    indx = (g4step['Volume'] == quadrants['DEPFETA'])
     g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
     g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
     # 'C' is shifted only in Y
-    indx = (depfet == 'DEPFETC')
+    indx = (g4step['Volume'] == quadrants['DEPFETC'])
     g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
     g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
     # 'B' is shifted in both X and Y
-    indx = (depfet == 'DEPFETB')
+    indx = (g4step['Volume'] == quadrants['DEPFETB'])
     g4step.loc[indx, ('LPre-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
     g4step.loc[indx, ('LPost-X')] += 7.64 + 31.36 + 35.3 + 3.7 + .59
     g4step.loc[indx, ('LPre-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
     g4step.loc[indx, ('LPost-Y')] += 6.72 + 31.36 + 35.3 + 2.78 + .37
 
     # bin the start and end step points into 130µm WFI pixels
-    prex = np.floor(prex_mm/.13).astype(int)
-    prey = np.floor(prey_mm/.13).astype(int)
-    postx = np.floor(postx_mm/.13).astype(int)
-    posty = np.floor(posty_mm/.13).astype(int)
+    prex = np.floor(g4step['LPre-X']/.13).astype(int)
+    prey = np.floor(g4step['LPre-Y']/.13).astype(int)
+    postx = np.floor(g4step['LPost-X']/.13).astype(int)
+    posty = np.floor(g4step['LPost-Y']/.13).astype(int)
 
     # get the differences to see if the step is fully in a pixel
     delta_x = postx - prex
@@ -229,10 +247,10 @@ for filename in sys.argv[1:] :
     # initialize the 2D look-up tables of DETID # indexed by ACTX and ACTY
     # DETID is 0,1,2,3 for A,B,C,D.
     img_detid = np.full([1205,1205], 8, dtype=np.byte)
-    img_detid[:600,:586] = 3
-    img_detid[600:,:586] = 0
-    img_detid[:600,586:] = 2
-    img_detid[600:,586:] = 1
+    img_detid[:600,:586] = quadrants['DEPFETD']
+    img_detid[600:,:586] = quadrants['DEPFETA']
+    img_detid[:600,586:] = quadrants['DEPFETC']
+    img_detid[600:,586:] = quadrants['DEPFETB']
 
     # initialize 2D pixel array for summed deposited energy and the secondary 
     # particle types ('partype') responsible; need enough for 0.13mm pixels
@@ -240,42 +258,43 @@ for filename in sys.argv[1:] :
     # 'partype' encodes all particles that deposited energy
     # 'sectype' encodes all particles produced outside the DEPFET that eventually deposited energy
     img_edep = np.zeros(img_detid.shape, dtype=np.float32)
-    img_partype = np.zeros(img_detid.shape, dtype=np.uint16)
-    img_secpartype = np.zeros(img_detid.shape, dtype=np.uint16)
+    img_partype = np.zeros(img_detid.shape, dtype=np.uint8)
+    img_secpartype = np.zeros(img_detid.shape, dtype=np.uint8)
 
     # loop through primids
     splitstep = 0
     this_startrow = 0
     for ii in range(numprims_interact) :
+
         this_primid = uniq_primid[ii]
-        this_energy = evt_energy[(evt_primid == this_primid)].values[0]
-        this_particletype = evt_particletype[(evt_primid == this_primid)].values[0]
+        this_primtype = g4evt['Particle'][(g4evt['Event'] == this_primid)].values[0]
+        #this_energy = g4evt['Energy'][(g4evt['Event'] == this_primid)].values[0]
         #print(f'ii = {ii}')
         #print(f'this_primid = {this_primid}')
         #print(f'this_energy = {this_energy}')
         #print(f'this_particletype = {this_particletype}')
-        this_primtype = ptypes.get(this_particletype, 0)
-        indx = (primid == this_primid)
+        #this_primtype = ptypes.get(this_particletype, 0)
+        indx = (g4step['Event'] == this_primid)
         # number of steps in this primary
         numsteps = indx.sum()
 
         # get 'these' steps for this_primary
-        these_parent = parent[indx]
-        these_pid = pid[indx]
-        these_particletype = particletype[indx]
-        these_secparticletype = these_particletype.copy()
-        these_process = process[indx]
+        these_parent = g4step['Parent'][indx]
+        these_pid = g4step['ID'][indx]
+        these_partype = g4step['Particle'][indx]
+        these_secpartype = these_partype.copy()
+        these_process = g4step['Process'][indx]
         these_prex = prex[indx]
         these_prey = prey[indx]
         these_postx = postx[indx]
         these_posty = posty[indx]
-        these_prex_mm = prex_mm[indx]
-        these_prey_mm = prey_mm[indx]
-        these_prez_mm = prez_mm[indx]
-        these_postx_mm = postx_mm[indx]
-        these_posty_mm = posty_mm[indx]
-        these_postz_mm = postz_mm[indx]
-        these_edep = edep[indx]
+        these_prex_mm = g4step['LPre-X'][indx]
+        these_prey_mm = g4step['LPre-Y'][indx]
+        these_prez_mm = g4step['LPre-Z'][indx]
+        these_postx_mm = g4step['LPost-X'][indx]
+        these_posty_mm = g4step['LPost-Y'][indx]
+        these_postz_mm = g4step['LPost-Z'][indx]
+        these_edep = g4step['Edep'][indx]
 
         # find the unique secondaries; these are PIDs with parents that don't show up in pid
         indx_notsecs = np.isin(these_parent, these_pid)
@@ -306,7 +325,7 @@ for filename in sys.argv[1:] :
             my_old_parent = these_parent[(these_pid==my_id)].iloc[0] 
             my_new_parent = these_parent[(these_pid==my_old_parent)].iloc[0]
             these_parent[(these_pid==my_id)] = my_new_parent
-            these_secparticletype[(these_pid==my_id)] = these_particletype[(these_pid==my_new_parent)].iloc[0]
+            these_secpartype[(these_pid==my_id)] = these_partype[(these_pid==my_new_parent)].iloc[0]
         indx_notsecs = np.isin(these_parent, my_secid, invert=True)
         num_tofix = indx_notsecs.sum()
         #print(f'Num. to fix: {num_tofix}')
@@ -325,10 +344,8 @@ for filename in sys.argv[1:] :
             #print(f'### {jj}: {particletype[indx].iloc[jj]}, {process[indx].iloc[jj]}, X = {prex[indx].iloc[jj]}->{postx[indx].iloc[jj]}, Y = {prey[indx].iloc[jj]}->{posty[indx].iloc[jj]}') 
 
             # get info for 'this' step
-            this_particletype = these_particletype.iloc[jj]
-            this_partype = ptypes.get(this_particletype, 0)
-            this_secparticletype = these_secparticletype.iloc[jj]
-            this_secpartype = ptypes.get(this_secparticletype, 0)
+            this_partype = these_partype.iloc[jj]
+            this_secpartype = these_secpartype.iloc[jj]
             this_process = these_process.iloc[jj]
             this_prex = these_prex.iloc[jj]
             this_prey = these_prey.iloc[jj]
@@ -351,7 +368,7 @@ for filename in sys.argv[1:] :
 
             # If the particle was a photon and it just didn't exit the volume, dump all the
             # energy deposited in the post-step pixel
-            elif (this_particletype == "gamma") and (this_process != "CoupledTransportation") :
+            elif (this_partype == ptypes['gamma']) and (this_process != proctypes['CoupledTransportation']) :
                 #print(f'### Photon.')
                 img_edep[this_postx,this_posty] = img_edep[this_postx,this_posty] + this_edep
                 img_partype[this_postx,this_posty] = np.bitwise_or(img_partype[this_postx,this_posty], this_partype)
@@ -369,7 +386,7 @@ for filename in sys.argv[1:] :
                 pos2 = np.array([ this_postx_mm, this_posty_mm, this_postz_mm ])
 
                 # chop that up into 'substep_size'-µm substeps into which we'll dump charge
-                nsubsteps = np.ceil(slen[indx].iloc[jj]/substep_size).astype(int)
+                nsubsteps = np.ceil(g4step['SLen'][indx].iloc[jj]/substep_size).astype(int)
                 substeps = np.linspace(0,1,nsubsteps)
                 pos = np.outer((1-substeps),pos1) + np.outer(substeps,pos2)
                 # chop up the charge, too
@@ -459,9 +476,9 @@ for filename in sys.argv[1:] :
     pix_runid = pix_runid[indx]
 
     # adjust primids so they start at zero and have no gaps
-    evt_newprimid = np.arange(evt_primid.size)
-    indx_primid = np.zeros(evt_primid.max()+1)
-    indx_primid[evt_primid] = evt_newprimid
+    evt_newprimid = np.arange(g4evt['Event'].size)
+    indx_primid = np.zeros(g4evt['Event'].max()+1)
+    indx_primid[g4evt['Event']] = evt_newprimid
     pix_newprimid = indx_primid[pix_primid].astype(np.uint32)
     numprims_interact = np.unique(pix_newprimid).size
 
@@ -491,5 +508,10 @@ for filename in sys.argv[1:] :
         pix_primtype.astype(np.uint8),
         pix_runid.astype(np.uint64)]), 
         outfile, hdr=hdr, hdrcomments=hdrcomments)
+
+
+#current, peak = tracemalloc.get_traced_memory()
+#print(f"Current memory usage is {current / 10**6}MB; Peak was {peak / 10**6}MB")
+#tracemalloc.stop()
 
 exit()
