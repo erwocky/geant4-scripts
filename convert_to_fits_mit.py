@@ -13,6 +13,10 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Mon Mar 15 17:31:52 EDT 2021
+# Eliminate zero-energy-deposition rows from the step file panda before
+# doing anything to them.
+#
 # EDM Thu Mar 11 08:45:41 EST 2021
 # Attempted to reduce memory usage by specifying dtypes in pandas DataFrame
 # and converting string columns to integers right away, since that's what
@@ -162,6 +166,9 @@ for filename in sys.argv[1:] :
     g4step['Particle'] = np.array(list(strcol2intcol(x, ptypes) for x in g4step['Particle']), dtype=np.uint8)
     g4step['Volume'] = np.array(list(strcol2intcol(x, quadrants) for x in g4step['Volume']), dtype=np.uint8)
     g4step['Process'] = np.array(list(strcol2intcol(x, proctypes) for x in g4step['Process']), dtype=np.uint8)
+
+    # delete step file rows that don't deposit energy
+    g4step = g4step[(g4step['Edep'] > 0)]
 
     # number of rows in the step file
     numrows = g4step.shape[0]
