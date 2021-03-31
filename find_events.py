@@ -54,13 +54,11 @@
 # First generic version that works. Adapted from 'doit.pl' and 'doit.py'
 # scripts that run on the Open University Geant4 data.
 
+import os, sys, glob, re, datetime
 import numpy as np
-from skimage import measure
-from astropy.io import fits
 from astropy.table import Table
-import sys, glob, os
-import datetime
-import re
+from astropy.io import fits
+from skimage import measure
 
 num_args = len(sys.argv) - 1    
 if num_args < 1:
@@ -182,10 +180,11 @@ acty_max = 1121
 #acty_min = 0
 #acty_max = 1026
 
-date = datetime.datetime.now().astimezone()
-date_string = date.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
-print("############################################################")
-print(f"### Started {sys.argv[0]} on {date_string}")
+date_start = datetime.datetime.now().astimezone()
+date_string = date_start.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
+print("############################################################", flush=True)
+print(f"### Started {sys.argv[0]} on {date_string}", flush=True)
+then = date_start
 
 #######################################
 # Main loop.
@@ -205,7 +204,7 @@ for filename in sys.argv[1:] :
     infile = filename
     path = os.path.dirname(filename)
     this_run = int( re.sub(r'.*rawpix_([0-9]+)\.fits$', r'\1', infile) )
-    print(f"### Processing {infile}.")
+    print(f"### Processing {infile}.", flush=True)
 
     # read in raw pixel energy deposition FITS file
     # some of this will be written out the pixel list (which will
@@ -241,10 +240,10 @@ for filename in sys.argv[1:] :
     # average num. primaries per frame
     mu_per_frame = numprims_gen * texp_frame / texp_run 
 
-    print(f"### There are {numprims_gen} primaries in this run.")
-    print(f"### The run exposure time is {texp_run} sec.")
-    print(f"### The frame exposure time is {texp_frame} sec")
-    print(f"### for an expected mean of {mu_per_frame} primaries per frame.")
+    print(f"### There are {numprims_gen} primaries in this run.", flush=True)
+    print(f"### The run exposure time is {texp_run} sec.", flush=True)
+    print(f"### The frame exposure time is {texp_frame} sec", flush=True)
+    print(f"### for an expected mean of {mu_per_frame} primaries per frame.", flush=True)
 
     # initialize event piddles, which will be written out or used later
     evt_runid = np.zeros(numpix_with_signal, dtype=np.uint64)
@@ -345,7 +344,7 @@ for filename in sys.argv[1:] :
         num_quadrants = np.unique(pix_detid[indx]).size
         num_in_different_quadrants[num_quadrants-1] += 1
 
-    print(f"### Run {this_run}: number of primaries in 1 2 3 4 quads: {num_in_different_quadrants}")
+    print(f"### Run {this_run}: number of primaries in 1 2 3 4 quads: {num_in_different_quadrants}", flush=True)
     # min and max X,Y values
 
     # figure out the unique frames that are populated by 
@@ -364,11 +363,11 @@ for filename in sys.argv[1:] :
     frame_nprim = np.zeros(numframes)
 
     pct_interact = 100. * numprimaries / numprims_gen
-    print(f"### Run {this_run}: generated {numtotframes} total frames,")
-    print(f"### of which {numframes} frames with the {numprimaries}")
-    print(f"### interacting primaries will be written.")
-    print(f"### {numprims_gen} total primaries were simulated.")
-    print(f"### {numprimaries} or {pct_interact}% of these produced a WFI interaction.")
+    print(f"### Run {this_run}: generated {numtotframes} total frames,", flush=True)
+    print(f"### of which {numframes} frames with the {numprimaries}", flush=True)
+    print(f"### interacting primaries will be written.", flush=True)
+    print(f"### {numprims_gen} total primaries were simulated.", flush=True)
+    print(f"### {numprimaries} or {pct_interact}% of these produced a WFI interaction.", flush=True)
 
     # loop through frames and make a raw frame for each
 
@@ -381,7 +380,9 @@ for filename in sys.argv[1:] :
 
         # keep us updated
         if i % 100 == 0:
-            print(f"### Run {this_run}: done {i} of {numframes} frames")
+            now = datetime.datetime.now().astimezone()
+            print(f"### Run {this_run}: done {i} of {numframes} frames, {(now-then).total_seconds()} / {(now-date_start).total_seconds()} sec elapsed.", flush=True)
+            then = now
             pass
 
         # are we writing out?
@@ -886,3 +887,9 @@ for filename in sys.argv[1:] :
 
 
 # done loop through runs
+
+date_stop = datetime.datetime.now().astimezone()
+elapsed = (date_stop-date_start).total_seconds()
+date_string = date_stop.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
+print(f"### Finished {sys.argv[0]} on {date_string}, took {elapsed} sec elapsed.", flush=True)
+print("############################################################", flush=True)

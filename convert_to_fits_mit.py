@@ -123,20 +123,21 @@ quadrants = { 'DEPFETA' : 0,
               'DEPFETC' : 2,
               'DEPFETD' : 3 }
 
-date = datetime.datetime.now().astimezone()
-date_string = date.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
-print("############################################################")
-print(f"### Started {sys.argv[0]} on {date_string}")
+date_start = datetime.datetime.now().astimezone()
+date_string = date_start.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
+print("############################################################", flush=True)
+print(f"### Started {sys.argv[0]} on {date_string}", flush=True)
+then = date_start
 
 # loop through input filenames
 for filename in sys.argv[1:] :
 
     # make sure filename exists and looks right
     if not os.path.isfile(filename) :
-        print(f'### Error reading file {filename}, skipping.')
+        print(f'### Error reading file {filename}, skipping.', flush=True)
         continue
     if not re.search('.*_StepLog_[0-9]+\.gdat[\.gz]*$', filename) : 
-        print(f'### Error: file {filename} does not look like a StepLog file, skipping.')
+        print(f'### Error: file {filename} does not look like a StepLog file, skipping.', flush=True)
         continue
 
 
@@ -145,10 +146,10 @@ for filename in sys.argv[1:] :
     g4evtfile = re.sub('StepLog', 'EvtLog', g4stepfile)
     runid = int( re.sub('.*?([0-9]+)_StepLog_([0-9]+)\.gdat(\.gz)*$', r'\1\2', g4stepfile) )
     outfile = os.path.join(path, f'rawpix_{runid}.fits')
-    print(f'### Converting run {runid}.')
-    print(f'### Step file   {g4stepfile}.')
-    print(f'### Event file  {g4evtfile}.')
-    print(f'### Output file {outfile}.')
+    print(f'### Converting run {runid}.', flush=True)
+    print(f'### Step file   {g4stepfile}.', flush=True)
+    print(f'### Event file  {g4evtfile}.', flush=True)
+    print(f'### Output file {outfile}.', flush=True)
 
     # open the Geant4 input files
     g4evt = pd.read_csv(g4evtfile, sep='\s+', 
@@ -180,7 +181,7 @@ for filename in sys.argv[1:] :
     uniq_primid = np.unique(g4step['Event'])
     numprims_interact = uniq_primid.size
 
-    print(f'### {numprims_interact} of {numprims_gen} generated primaries interacted.')
+    print(f'### {numprims_interact} of {numprims_gen} generated primaries interacted.', flush=True)
 
     # allocate output arrays, which are pixel-based
     pix_primid = np.zeros(numrows, dtype=np.uint32)
@@ -436,7 +437,9 @@ for filename in sys.argv[1:] :
 
         # keep us updated
         if ((ii+1) % 10 == 0) :
-            print(f"### Run {runid}: done {ii+1} of {numprims_interact} primaries.")
+            now = datetime.datetime.now().astimezone()
+            print(f"### Run {runid}: done {ii+1} of {numprims_interact} primaries, {(now-then).total_seconds()} / {(now-date_start).total_seconds()} sec elapsed.", flush=True)
+            then = now
             pass
 
     # done primary-by-primary processing
@@ -520,5 +523,11 @@ for filename in sys.argv[1:] :
 #current, peak = tracemalloc.get_traced_memory()
 #print(f"Current memory usage is {current / 10**6}MB; Peak was {peak / 10**6}MB")
 #tracemalloc.stop()
+
+date_stop = datetime.datetime.now().astimezone()
+elapsed = (date_stop-date_start).total_seconds()
+date_string = date_stop.strftime("%a %d %b %Y %I:%M:%S %p %Z").rstrip()
+print(f"### Finished {sys.argv[0]} on {date_string}, took {elapsed} sec elapsed.", flush=True)
+print("############################################################", flush=True)
 
 exit()
