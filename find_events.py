@@ -26,6 +26,16 @@
 #       5 or more pixels (set by npixthresh), or any number of pixels
 #       including at least one pixel above the MIP threshold.
 #
+# EDM Wed Mar 31 11:15:02 EDT 2021
+# Added primary particle energy PRIMENERGY to output FTIS pixel table.
+# Also fixed the fact that PARTYPE, SECPARTYPE, and PRIMTYPE were not
+# being populated correctly.
+#
+# EDM Wed Mar 31 10:38:30 EDT 2021
+# Added some elapsed time logging for benchmarking. Also added 'flush=True'
+# to most of the print statements so they pop out in the supercloud log
+# files as they go.
+#
 # EDM Tue Mar  9 13:11:35 EST 2021
 # Added SECPARTYPE, which records the particle type of the particle that
 # entered the detector and ultimately led to the energy deposition. This
@@ -219,6 +229,7 @@ for filename in sys.argv[1:] :
     pix_partype = rawpix['PARTYPE']
     pix_secpartype = rawpix['SECPARTYPE']
     pix_primtype = rawpix['PRIMTYPE']
+    pix_primenergy = rawpix['PRIMENERGY']
     pix_frame = np.zeros(pix_actx.size, dtype=int)
     pix_blobid = np.zeros(pix_actx.size, dtype=int)
 
@@ -256,6 +267,7 @@ for filename in sys.argv[1:] :
     evt_partype = np.zeros(numpix_with_signal, dtype=np.uint8)
     evt_secpartype = np.zeros(numpix_with_signal, dtype=np.uint8)
     evt_primtype = np.zeros(numpix_with_signal, dtype=np.uint8)
+    evt_primenergy = np.zeros(numpix_with_signal, dtype=np.single)   # in GeV
     evt_energy = np.zeros(numpix_with_signal, dtype = np.single)     # in keV
     evt_blobdist = np.zeros(numpix_with_signal, dtype=np.single)
     evt_mipdist = np.zeros(numpix_with_signal, dtype=np.single)
@@ -404,6 +416,7 @@ for filename in sys.argv[1:] :
         pixpartype = np.copy(pix_partype[pixel_indx])
         pixsecpartype = np.copy(pix_secpartype[pixel_indx])
         pixprimtype = np.copy(pix_primtype[pixel_indx])
+        pixprimenergy = np.copy(pix_primenergy[pixel_indx])
         pixprimid = np.copy(pix_primid[pixel_indx])
         # we want to populate this so don't sever it
         """comments..."""
@@ -427,6 +440,7 @@ for filename in sys.argv[1:] :
         partypeimg = np.zeros((ydim, xdim), float)
         secpartypeimg = np.zeros((ydim, xdim), float)
         primtypeimg = np.zeros((ydim, xdim), float)
+        primenergyimg = np.zeros((ydim, xdim), float)
         primidimg = np.zeros((ydim, xdim), float)
         img_xvals = np.fromfunction(lambda x,y: y, (ydim, xdim), dtype = int)
         img_yvals = np.fromfunction(lambda x,y: x, (ydim, xdim), dtype = int)
@@ -441,6 +455,7 @@ for filename in sys.argv[1:] :
         indexND(partypeimg, coos, pixpartype)
         indexND(secpartypeimg, coos, pixsecpartype)
         indexND(primtypeimg, coos, pixprimtype)
+        indexND(primenergyimg, coos, pixprimenergy)
         indexND(primidimg, coos, pixprimid)
 
         #print(pixprimid, x, y, en, sep='\n')
@@ -618,6 +633,7 @@ for filename in sys.argv[1:] :
                     this_partype = np.copy(partypeimg[evty,evtx])
                     this_secpartype = np.copy(secpartypeimg[evty,evtx])
                     this_primtype = np.copy(primtypeimg[evty,evtx])
+                    this_primenergy = np.copy(primenergyimg[evty,evtx])
                     this_primid = np.copy(primidimg[evty,evtx])
                 else:
                     continue
@@ -644,6 +660,10 @@ for filename in sys.argv[1:] :
         evt_frame[indx] = this_frame
         evt_actx[indx] = evtx
         evt_acty[indx] = evty
+        evt_partype[indx] = this_partype
+        evt_secpartype[indx] = this_secpartype
+        evt_primtype[indx] = this_primtype
+        evt_primenergy[indx] = this_primenergy
         evt_phas[indx,:] = this_phas
         #evt_pha[indx] = np.zeros(numevents_thisframe)
         #evt_partype[indx] = np.array(this_partype, np.uint8)
@@ -776,6 +796,7 @@ for filename in sys.argv[1:] :
     evt_partype = evt_partype[:numevents]
     evt_secpartype = evt_secpartype[:numevents]
     evt_primtype = evt_primtype[:numevents]
+    evt_primenergy = evt_primenergy[:numevents]
     evt_energy = evt_energy[:numevents]
     evt_blobdist = evt_blobdist[:numevents]
     evt_mipdist = evt_mipdist[:numevents]
@@ -800,7 +821,7 @@ for filename in sys.argv[1:] :
     #     'VFAINT': vfaint.astype(np.uint8)},
     #       outevtfile, hdr=hdr)
     wfits( (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBDIST', 'MIPDIST', 'PATTERN', 'PARTYPE', 
-        'SECPARTYPE', 'PRIMTYPE', 'VFAINT', 'PHA', 'PHAS', 'RUNID', 'PRIMID'], 
+        'SECPARTYPE', 'PRIMTYPE', 'PRIMENERGY', 'VFAINT', 'PHA', 'PHAS', 'RUNID', 'PRIMID'], 
         [evt_frame.astype(np.uint32),
         evt_detid.astype(np.uint8),
         evt_actx.astype(np.uint16),
@@ -812,6 +833,7 @@ for filename in sys.argv[1:] :
         evt_partype.astype(np.uint8),
         evt_secpartype.astype(np.uint8),
         evt_primtype.astype(np.uint8),
+        evt_primenergy.astype(np.single),
         evt_vfaint.astype(np.uint8),
         evt_pha.astype(np.single),
         evt_phas.astype(np.single),
@@ -825,7 +847,7 @@ for filename in sys.argv[1:] :
     pix_actx += x_offset
     pix_acty += y_offset
     indx_sorted = np.argsort(pix_frame)
-    wfits( (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBID', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'RUNID', 'PRIMID'],
+    wfits( (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBID', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'PRIMENERGY', 'RUNID', 'PRIMID'],
         [pix_frame[indx_sorted].astype(np.uint32),
         pix_detid[indx_sorted].astype(np.uint8),
         pix_actx[indx_sorted].astype(np.uint16),
@@ -835,6 +857,7 @@ for filename in sys.argv[1:] :
         pix_partype[indx_sorted].astype(np.uint8),
         pix_secpartype[indx_sorted].astype(np.uint8),
         pix_primtype[indx_sorted].astype(np.uint8),
+        pix_primenergy[indx_sorted].astype(np.single),
         pix_runid[indx_sorted].astype(np.uint64),
         pix_primid[indx_sorted].astype(np.uint32)]),
         outpixfile, hdr=hdr, hdrcomments=hdrcomments)

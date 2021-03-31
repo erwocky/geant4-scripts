@@ -13,6 +13,14 @@
 # The EvtLog file contains summary information of each generated primary,
 # and the StepLog file contains the energy deposition steps.
 #
+# EDM Wed Mar 31 11:15:02 EDT 2021
+# Added primary particle energy PRIMENERGY to output FTIS pixel table.
+#
+# EDM Wed Mar 31 10:38:30 EDT 2021
+# Added some elapsed time logging for benchmarking. Also added 'flush=True'
+# to most of the print statements so they pop out in the supercloud log
+# files as they go.
+#
 # EDM Mon Mar 15 17:31:52 EDT 2021
 # Eliminate zero-energy-deposition rows from the step file panda before
 # doing anything to them.
@@ -153,7 +161,7 @@ for filename in sys.argv[1:] :
 
     # open the Geant4 input files
     g4evt = pd.read_csv(g4evtfile, sep='\s+', 
-            usecols=['Event', 'Particle'], dtype={'Event':np.uint32, 'Particle':str})
+            usecols=['Event', 'Particle', 'Energy'], dtype={'Event':np.uint32, 'Particle':str, 'Energy':np.float32})
     g4step = pd.read_csv(g4stepfile, sep='\s+', 
             usecols=['Event', 'Volume', 'Parent', 'ID', 'SLen', 'Edep', 'Particle', 
                 'LPre-X', 'LPre-Y', 'LPre-Z', 'LPost-X', 'LPost-Y', 'LPost-Z', 'Process'], 
@@ -192,6 +200,7 @@ for filename in sys.argv[1:] :
     pix_partype = np.zeros(numrows, dtype=np.uint16)
     pix_secpartype = np.zeros(numrows, dtype=np.uint16)
     pix_primtype = np.zeros(numrows, dtype=np.uint8)
+    pix_primenergy = np.zeros(numrows, dtype=np.float32)
     pix_runid = np.zeros(numrows, dtype=np.uint16) + runid
 
     # Convert Rick's LOCAL coords (in mm per depfet) to the full focal plane.
@@ -276,7 +285,7 @@ for filename in sys.argv[1:] :
 
         this_primid = uniq_primid[ii]
         this_primtype = g4evt['Particle'][(g4evt['Event'] == this_primid)].values[0]
-        #this_energy = g4evt['Energy'][(g4evt['Event'] == this_primid)].values[0]
+        this_primenergy = g4evt['Energy'][(g4evt['Event'] == this_primid)].values[0]
         #print(f'ii = {ii}')
         #print(f'this_primid = {this_primid}')
         #print(f'this_energy = {this_energy}')
@@ -430,6 +439,7 @@ for filename in sys.argv[1:] :
         pix_partype[this_startrow:this_endrow] = this_partype
         pix_secpartype[this_startrow:this_endrow] = this_secpartype
         pix_primtype[this_startrow:this_endrow] = this_primtype
+        pix_primenergy[this_startrow:this_endrow] = this_primenergy
         # these are already initialized with correct values
         #pix_runid[this_startrow:this_endrow] = this_runid
 
@@ -453,6 +463,7 @@ for filename in sys.argv[1:] :
     pix_partype = pix_partype[0:numrows]
     pix_secpartype = pix_secpartype[0:numrows]
     pix_primtype = pix_primtype[0:numrows]
+    pix_primenergy = pix_primenergy[0:numrows]
     pix_runid = pix_runid[0:numrows]
 
     # eliminate signal outside of the 512-pixel active region of each DEPFET,
@@ -472,6 +483,7 @@ for filename in sys.argv[1:] :
     pix_partype = pix_partype[indx]
     pix_secpartype = pix_secpartype[indx]
     pix_primtype = pix_primtype[indx]
+    pix_primenergy = pix_primenergy[indx]
     pix_runid = pix_runid[indx]
     # remove the gaps
     indx = ( (pix_actx<=570) | (pix_actx>=632) ) & ( (pix_acty<=563) | (pix_acty>=610) )
@@ -483,6 +495,7 @@ for filename in sys.argv[1:] :
     pix_partype = pix_partype[indx]
     pix_secpartype = pix_secpartype[indx]
     pix_primtype = pix_primtype[indx]
+    pix_primenergy = pix_primenergy[indx]
     pix_runid = pix_runid[indx]
 
     # adjust primids so they start at zero and have no gaps
@@ -506,7 +519,7 @@ for filename in sys.argv[1:] :
 
     # make a table and save it to a FITS HDU
     wfits( (['PRIMID', 'OPRIMID', 'DETID', 'ACTX', 'ACTY',
-        'ENERGY', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'RUNID'],
+        'ENERGY', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'PRIMENERGY', 'RUNID'],
         [pix_newprimid.astype(np.uint32),
         pix_primid.astype(np.uint32),
         pix_detid.astype(np.uint8),
@@ -516,6 +529,7 @@ for filename in sys.argv[1:] :
         pix_partype.astype(np.uint8),
         pix_secpartype.astype(np.uint8),
         pix_primtype.astype(np.uint8),
+        pix_primenergy.astype(np.single),
         pix_runid.astype(np.uint64)]), 
         outfile, hdr=hdr, hdrcomments=hdrcomments)
 
