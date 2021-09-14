@@ -11,20 +11,30 @@
 # where <runid> is a sequence of numbers indicating a unique Geant4 run.
 # The script will process each FITS file in turn, sorting primaries into
 # radomly selected frames of specified length, and then finding and
-# characterizing events and particle tracks ('blobs'). It will write out:
+# characterizing events and particle tracks ('blobs'). It will write out
+# a single FITS file with four extensions:
 #
-#   path/geant_events_<runid>_frames.fits
-#       Summary information for each frame.
-#   path/geant_events_<runid>_pix.fits
-#       List of all pixels with signal. Basically a copy of the
-#       input but with frame and blob info added.
-#   path/geant_events_<runid>_evt.fits
+#   path/geant_events_<runid>.fits
+#   EVENTS
 #       List of events, which are identified as 3x3 islands around
 #       a local maximum. 
-#   path/geant_events_<runid>_blobs.fits
+#   FRAMES
+#       Summary information for each frame.
+#   BLOBS
 #       List of particle tracks, which are contiguous islands of 
 #       5 or more pixels (set by npixthresh), or any number of pixels
 #       including at least one pixel above the MIP threshold.
+#   PIXELS
+#       List of all pixels with signal. Basically a copy of the
+#       input but with frame and blob info added.
+#
+# EDM Wed Jul 14 11:41:56 EDT 2021 
+# Now handles input files that are gzipped (or at least have .gz
+# extension).
+#
+# EDM Tue Jun  8 16:47:57 EDT 2021
+# Removed 'wfits' routine, and now write single output FITS table with 
+# four extensions for events, frames, blobs, and pixels.
 #
 # EDM Wed Mar 31 11:15:02 EDT 2021
 # Added primary particle energy PRIMENERGY to output FTIS pixel table.
@@ -82,23 +92,6 @@ def indexND(array, ind, value=None):
     if value is None:
         return array[ind[1],ind[0]]     
     array[ind[1],ind[0]] = value        
-
-def wfits(data, fitsfile, ow=True, hdr=None, hdrcomments=None):
-    if isinstance(data, dict):
-        pass
-    elif isinstance(data, tuple):
-        t = Table(data[1], names = data[0])
-        hdu = fits.table_to_hdu(t)
-        if hdr:
-            for key, val in hdr.items():
-                hdu.header[key] = val
-        if hdrcomments:
-            for key, val in hdrcomments.items():
-                hdu.header.comments[key] = val
-    else:
-        hdu = fits.PrimaryHDU()
-        hdu.data = data
-    hdu.writeto(fitsfile, overwrite = ow)
 
 def which(condition):
     if condition.ndim != 1:
@@ -204,16 +197,22 @@ then = date_start
 
 for filename in sys.argv[1:] :
 
-    if not re.search('.*rawpix_[0-9]+\.fits$', filename) : 
+    # parse the filename arg to see if it makes sense
+    if not re.search('.*rawpix_[0-9]+\.fits[\.gz]*$', filename) : 
         print(f'Error: file {filename} does not look like a rawpix FITS')
         continue
+    # test if the file exists
     if not os.path.isfile(filename) :
-        print(f'Error reading file {filename}')
-        continue
+        # of course, it could be gzipped
+        if not os.path.isfile(f'{filename}.gz') :
+            print(f'Error reading file {filename}')
+            continue
+        else :
+            filename = f'{filename}.gz'
 
     infile = filename
     path = os.path.dirname(filename)
-    this_run = int( re.sub(r'.*rawpix_([0-9]+)\.fits$', r'\1', infile) )
+    this_run = int( re.sub(r'.*rawpix_([0-9]+)\.fits.*', r'\1', infile) )
     print(f"### Processing {infile}.", flush=True)
 
     # read in raw pixel energy deposition FITS file
@@ -470,7 +469,8 @@ for filename in sys.argv[1:] :
         if writeit:
             fitsfile = os.path.join(path, f'run{this_run}_frame{this_frame}_img.fits')
             print(f"### Writing raw image {fitsfile}.")
-            wfits(img, fitsfile)
+            hdu = fits.PrimaryHDU(img)
+            hdu.writeto(fitsfile, overwrite=True)
 
         #############################################
         # find blobs
@@ -768,121 +768,73 @@ for filename in sys.argv[1:] :
     # done loop through frames
 
     # set header/metadata for output FITS files
-    hdr = { 
-            'SPH_RAD' : sphere_radius,
-            'NPRI_GEN' : numprims_gen,
-            'NPRI_INT' : numprims_interact,
-            'NFRAMES' : numtotframes,
-            'NBLOBS' : numtotblobs,
-            'TEXPFRAM' : texp_frame }
-    hdrcomments = {
-            'SPH_RAD' : 'Radius of Geant4 source sphere in cm',
-            'NPRI_GEN' : 'Number of primaries generated',
-            'NPRI_INT' : 'Number of primaries producing signal',
-            'NFRAMES' : 'Number of frames in this file',
-            'NBLOBS' : 'Number of blobs in this file',
-            'TEXPFRAM' : 'Frame exposure time in sec' }
+    hdr = fits.Header()
+    hdr.set('SPH_RAD', sphere_radius, 'Radius of Geant4 source sphere in cm')
+    hdr.set('NPRI_GEN', numprims_gen, 'Number of primaries generated')
+    hdr.set('NPRI_INT', numprims_interact, 'Number of primaries producing signal')
+    hdr.set('NFRAMES', numtotframes, 'Number of frames in this file')
+    hdr.set('NBLOBS', numtotblobs, 'Number of blobs in this file')
+    hdr.set('TEXPFRAM', texp_frame, 'Frame exposure time in sec')
 
-    # write out event file
-    outevtfile = os.path.join(path, f'geant_events_{this_run}_evt.fits')
-    # chop off the unused parts of the arrays
-    evt_runid = evt_runid[:numevents]
-    evt_detid = evt_detid[:numevents]
-    evt_primid = evt_primid[:numevents]
-    evt_actx = evt_actx[:numevents]
-    evt_acty = evt_acty[:numevents]
-    evt_phas = evt_phas[:numevents]
-    evt_pha = evt_pha[:numevents]
-    evt_partype = evt_partype[:numevents]
-    evt_secpartype = evt_secpartype[:numevents]
-    evt_primtype = evt_primtype[:numevents]
-    evt_primenergy = evt_primenergy[:numevents]
-    evt_energy = evt_energy[:numevents]
-    evt_blobdist = evt_blobdist[:numevents]
-    evt_mipdist = evt_mipdist[:numevents]
-    evt_pattern = evt_pattern[:numevents]
-    evt_vfaint = evt_vfaint[:numevents]
-    evt_frame = evt_frame[:numevents]
-    # this method of wfits-ing ain't ready yet
-    #wfits({'RUNID': runid.astype(np.uint16),
-    #     'DETID': detid.astype(np.int32),
-    #     'PRIMID': primid.astype(np.int32),
-    #     'FRAME': evt_frame.astype(np.int32),
-    #     'ACTX': actx.astype(np.uint16),
-    #     'ACTY': acty.astype(np.uint16),
-    #     'PHAS': phas.astype(np.float),
-    #     'PHA': pha.astype(np.float),
-    #     'PARTYPE': partype.astype(np.uint8),
-    #     'PRIMTYPE': primtype.astype(np.uint8),
-    #     'ENERGY': energy.astype(np.float),
-    #     'BLOBDIST': blobdist.astype(np.float),
-    #     'MIPDIST': mipdist.astype(np.float),
-    #     'PATTERN': pattern.astype(np.uint8),
-    #     'VFAINT': vfaint.astype(np.uint8)},
-    #       outevtfile, hdr=hdr)
-    wfits( (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBDIST', 'MIPDIST', 'PATTERN', 'PARTYPE', 
-        'SECPARTYPE', 'PRIMTYPE', 'PRIMENERGY', 'VFAINT', 'PHA', 'PHAS', 'RUNID', 'PRIMID'], 
-        [evt_frame.astype(np.uint32),
-        evt_detid.astype(np.uint8),
-        evt_actx.astype(np.uint16),
-        evt_acty.astype(np.uint16),
-        evt_energy.astype(np.single),
-        evt_blobdist.astype(np.single),
-        evt_mipdist.astype(np.single),
-        evt_pattern.astype(np.uint8),
-        evt_partype.astype(np.uint8),
-        evt_secpartype.astype(np.uint8),
-        evt_primtype.astype(np.uint8),
-        evt_primenergy.astype(np.single),
-        evt_vfaint.astype(np.uint8),
-        evt_pha.astype(np.single),
-        evt_phas.astype(np.single),
-        evt_runid.astype(np.uint64),
-        evt_primid.astype(np.uint32)]),
-        outevtfile, hdr=hdr, hdrcomments=hdrcomments)
+    # create an empty primary HDU
+    empty_primary = fits.PrimaryHDU(header=hdr)
 
-    # write out pixel list
-    print(f"### Writing pixel list for run {this_run}.")
-    outpixfile = os.path.join(path, f'geant_events_{this_run}_pix.fits')
+    # create events HDU, first chopping off the unused parts of the arrays
+    col1  = fits.Column(name='FRAME', format='J', array=evt_frame[:numevents])
+    col2  = fits.Column(name='DETID', format='B', array=evt_detid[:numevents])
+    col3  = fits.Column(name='ACTX', format='I', array=evt_actx[:numevents])
+    col4  = fits.Column(name='ACTY', format='I', array=evt_acty[:numevents])
+    col5  = fits.Column(name='ENERGY', format='E', array=evt_energy[:numevents])
+    col6  = fits.Column(name='BLOBDIST', format='E', array=evt_blobdist[:numevents])
+    col7  = fits.Column(name='MIPDIST', format='E', array=evt_mipdist[:numevents])
+    col8  = fits.Column(name='PATTERN', format='B', array=evt_pattern[:numevents])
+    col9  = fits.Column(name='PARTYPE', format='B', array=evt_partype[:numevents])
+    col10 = fits.Column(name='SECPARTYPE', format='B', array=evt_secpartype[:numevents])
+    col11 = fits.Column(name='PRIMTYPE', format='B', array=evt_primtype[:numevents])
+    col12 = fits.Column(name='PRIMENERGY', format='E', array=evt_primenergy[:numevents])
+    col13 = fits.Column(name='VFAINT', format='B', array=evt_vfaint[:numevents])
+    col14 = fits.Column(name='PHA', format='E', array=evt_pha[:numevents])
+    col15 = fits.Column(name='PHAS', format='25E', array=evt_phas[:numevents])
+    col16 = fits.Column(name='RUNID', format='K', array=evt_runid[:numevents])
+    col17 = fits.Column(name='PRIMID', format='J', array=evt_primid[:numevents])
+    events_hdu = fits.BinTableHDU.from_columns([col1, col2, col3, col4, col5, col6, col7, col8,
+        col9, col10, col11, col12, col13, col14, col15, col16, col17], name='EVENTS', header=hdr)
+
+    # create pixel HDU, after sorting by frame
     pix_actx += x_offset
     pix_acty += y_offset
     indx_sorted = np.argsort(pix_frame)
-    wfits( (['FRAME', 'DETID', 'ACTX', 'ACTY', 'ENERGY', 'BLOBID', 'PARTYPE', 'SECPARTYPE', 'PRIMTYPE', 'PRIMENERGY', 'RUNID', 'PRIMID'],
-        [pix_frame[indx_sorted].astype(np.uint32),
-        pix_detid[indx_sorted].astype(np.uint8),
-        pix_actx[indx_sorted].astype(np.uint16),
-        pix_acty[indx_sorted].astype(np.uint16),
-        pix_energy[indx_sorted].astype(np.single),
-        pix_blobid[indx_sorted].astype(np.uint64),
-        pix_partype[indx_sorted].astype(np.uint8),
-        pix_secpartype[indx_sorted].astype(np.uint8),
-        pix_primtype[indx_sorted].astype(np.uint8),
-        pix_primenergy[indx_sorted].astype(np.single),
-        pix_runid[indx_sorted].astype(np.uint64),
-        pix_primid[indx_sorted].astype(np.uint32)]),
-        outpixfile, hdr=hdr, hdrcomments=hdrcomments)
+    col1 = fits.Column(name='FRAME', format='J', array=pix_frame[indx_sorted])
+    col2 = fits.Column(name='DETID', format='B', array=pix_detid[indx_sorted])
+    col3 = fits.Column(name='ACTX', format='I', array=pix_actx[indx_sorted])
+    col4 = fits.Column(name='ACTY', format='I', array=pix_acty[indx_sorted])
+    col5 = fits.Column(name='ENERGY', format='E', array=pix_energy[indx_sorted])
+    col6 = fits.Column(name='BLOBID', format='K', array=pix_blobid[indx_sorted])
+    col7 = fits.Column(name='PARTYPE', format='B', array=pix_partype[indx_sorted])
+    col8 = fits.Column(name='SECPARTYPE', format='B', array=pix_secpartype[indx_sorted])
+    col9 = fits.Column(name='PRIMTYPE', format='B', array=pix_primtype[indx_sorted])
+    col10 = fits.Column(name='PRIMENERGY', format='E', array=pix_primenergy[indx_sorted]) 
+    col11 = fits.Column(name='RUNID', format='K', array=pix_runid[indx_sorted])      
+    col12 = fits.Column(name='PRIMID', format='J', array=pix_primid[indx_sorted])     
+    pix_hdu = fits.BinTableHDU.from_columns([col1, col2, col3, col4, col5, col6, col7, col8,
+        col9, col10, col11, col12], name='PIXELS', header=hdr)
 
-    # write out frame list
-    print(f"### Writing frame list for run {this_run}.")
-    outframefile = os.path.join(path, f'geant_events_{this_run}_frames.fits')
+    # create frames HDU, after sorting by frame
     indx_sorted = np.argsort(frame_frame)
-    wfits( (['FRAME', 'TIME', 'NPRIM', 'NBLOB', 'NEVT', 'NEVT27', 'NEVTGOOD', 'NPIX', 'NPIXMIP', 'RUNID'], 
-        [frame_frame[indx_sorted].astype(np.uint32),
-        frame_time[indx_sorted].astype(np.single),
-        frame_nprim[indx_sorted].astype(np.uint16),
-        frame_nblob[indx_sorted].astype(np.uint16),
-        frame_nevt[indx_sorted].astype(np.uint16),
-        frame_nevt27[indx_sorted].astype(np.uint16),
-        frame_nevtgood[indx_sorted].astype(np.uint16),
-        frame_npix[indx_sorted].astype(np.uint32),
-        frame_npixmip[indx_sorted].astype(np.uint32),
-        frame_runid[indx_sorted].astype(np.uint64)]),
-        outframefile, hdr = hdr, hdrcomments=hdrcomments)  
+    col1 = fits.Column(name='FRAME', format='J', array=frame_frame[indx_sorted])
+    col2 = fits.Column(name='TIME', format='E', array=frame_time[indx_sorted])
+    col3 = fits.Column(name='NPRIM', format='I', array=frame_nprim[indx_sorted])
+    col4 = fits.Column(name='NBLOB', format='I', array=frame_nblob[indx_sorted])
+    col5 = fits.Column(name='NEVT', format='I', array=frame_nevt[indx_sorted])
+    col6 = fits.Column(name='NEVT27', format='I', array=frame_nevt27[indx_sorted])
+    col7 = fits.Column(name='NEVTGOOD', format='I', array=frame_nevtgood[indx_sorted])
+    col8 = fits.Column(name='NPIX', format='J', array=frame_npix[indx_sorted])
+    col9 = fits.Column(name='NPIXMIP', format='J', array=frame_npixmip[indx_sorted])
+    col10 = fits.Column(name='RUNID', format='K', array=frame_runid[indx_sorted])
+    frames_hdu = fits.BinTableHDU.from_columns([col1, col2, col3, col4, col5, col6, col7, col8,
+        col9, col10], name='FRAMES', header=hdr)
 
-    # write out blob list
-    print(f"### Writing blob list for run {this_run}.")
-    outblobfile = os.path.join(path, f'geant_events_{this_run}_blobs.fits')
-    # chop off the unused parts of the arrays
+    # create blobs HDU, after chop off the unused parts of the arrays and sorting by blobid
     blob_frame = blob_frame[:numtotblobs]
     blob_blobid = blob_blobid[:numtotblobs]
     blob_cenx = blob_cenx[:numtotblobs]
@@ -892,22 +844,26 @@ for filename in sys.argv[1:] :
     blob_npix = blob_npix[:numtotblobs]
     blob_energy = blob_energy[:numtotblobs]
     blob_energycl = blob_energycl[:numtotblobs]
-    # sort by blobid
     indx_sorted = np.argsort(blob_blobid)
-    wfits( (['FRAME', 'BLOBID', 'CENX', 'CENXCL', 'CENY', 'CENYCL', 'ENERGY', 'ENERGYCL', 'NPIX'],
-        [blob_frame[indx_sorted].astype(np.uint32),
-        blob_blobid[indx_sorted].astype(np.uint64),
-        blob_cenx[indx_sorted].astype(np.single),
-        blob_cenxcl[indx_sorted].astype(np.single),
-        blob_ceny[indx_sorted].astype(np.single),
-        blob_cenycl[indx_sorted].astype(np.single),
-        blob_energy[indx_sorted].astype(np.single),
-        blob_energycl[indx_sorted].astype(np.single),
-        blob_npix[indx_sorted].astype(np.uint32)]),
-        outblobfile, hdr=hdr, hdrcomments=hdrcomments)
+    col1 = fits.Column(name='FRAME', format='J', array=blob_frame[indx_sorted])
+    col2 = fits.Column(name='BLOBID', format='K', array=blob_blobid[indx_sorted])
+    col3 = fits.Column(name='CENX', format='E', array=blob_cenx[indx_sorted])
+    col4 = fits.Column(name='CENXCL', format='E', array=blob_cenxcl[indx_sorted])
+    col5 = fits.Column(name='CENY', format='E', array=blob_ceny[indx_sorted])
+    col6 = fits.Column(name='CENYCL', format='E', array=blob_cenycl[indx_sorted])
+    col7 = fits.Column(name='ENERGY', format='E', array=blob_energy[indx_sorted])
+    col8 = fits.Column(name='ENERGYCL', format='E', array=blob_energycl[indx_sorted])
+    col9 = fits.Column(name='NPIX', format='J', array=blob_npix[indx_sorted])
+    blobs_hdu = fits.BinTableHDU.from_columns([col1, col2, col3, col4, col5, col6, col7, col8,
+        col9], name='BLOBS', header=hdr)
+
+    # write the FITS table
+    print(f"### Writing output FITS file for run {this_run}.")
+    outfile = os.path.join(path, f'geant_events_{this_run}.fits')
+    hdul = fits.HDUList([empty_primary, events_hdu, frames_hdu, blobs_hdu, pix_hdu])
+    hdul.writeto(outfile, output_verify='silentfix', overwrite=True, checksum=True)
 
     print(f"### Finished run {this_run}.")
-
 
 # done loop through runs
 

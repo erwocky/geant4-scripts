@@ -17,6 +17,10 @@
 # can be considered a simulated WFI observation obtained from the full
 # Geant4 run.
 #
+# EDM Mon Jul 12 11:57:19 EDT 2021
+# Updated to deal with single four-extension input and output FITS files.
+# Four extensions are for events, frames, blobs, and pixels.
+#
 # EDM Tue Dec 22 11:38:33 EST 2020
 # Removed PHAS column from combined event list, since astropy.table isn't
 # happy with it and it adds a huge amount to file size.
@@ -48,7 +52,7 @@ if not os.path.isdir(path) :
     print(f'### Error reading directory {path}, exiting.')
     exit()
 
-patt = re.compile('geant_events_[0-9]+_frames.fits')
+patt = re.compile('geant_events_[0-9]+.fits')
 filenames = [ f for f in os.listdir(path) if patt.match(f) ]
 #print(f'{path}')
 
@@ -65,36 +69,25 @@ currow_evt = 0
 currow_blobs = 0
 
 # loop through frame FITS files
-for framefits in filenames :
+for fitsfile in filenames :
 
     # add the path to the frame FITS filename
-    framefits = os.path.join(path, framefits)
-    print(f'### Doing file {numfiles_done+1} of {numfiles}, {framefits}.')
+    fitsfile = os.path.join(path, fitsfile)
+    print(f'### Doing file {numfiles_done+1} of {numfiles}, {fitsfile}.')
 
     # figure out the other FITS filenames and make sure they all exist
-    if not os.path.isfile(framefits) :
-        print(f'### Error reading frame FITS file {framefits}, skipping.')
-        continue
-    pixfits = re.sub('frames\.fits', 'pix.fits', framefits)
-    if not os.path.isfile(pixfits) :
-        print(f'### Error reading pix FITS file {pixfits}, skipping.')
-        continue
-    evtfits = re.sub('frames\.fits', 'evt.fits', framefits)
-    if not os.path.isfile(evtfits) :
-        print(f'### Error reading evt FITS file {evtfits}, skipping.')
-        continue
-    blobfits = re.sub('frames\.fits', 'blobs.fits', framefits)
-    if not os.path.isfile(blobfits) :
-        print(f'### Error reading blob FITS file {blobfits}, skipping.')
+    if not os.path.isfile(fitsfile) :
+        print(f'### Error reading FITS file {fitsfile}, skipping.')
         continue
 
     # read FITS file into tables
-    this_frames = tbl.Table.read(framefits, hdu=1)
-    this_pix = tbl.Table.read(pixfits, hdu=1)
-    this_evt = tbl.Table.read(evtfits, hdu=1)
+    hdulist = fits.open(fitsfile) 
+    this_frames = tbl.Table.read(hdulist['FRAMES'])
+    this_pix = tbl.Table.read(hdulist['PIXELS'])
+    this_evt = tbl.Table.read(hdulist['EVENTS'])
     # might need to remove this line eventually
     this_evt.remove_column('PHAS')
-    this_blobs = tbl.Table.read(blobfits, hdu=1)
+    this_blobs = tbl.Table.read(hdulist['BLOBS'])
 
     # get number of rows
     this_numrows_frames = len(this_frames)
@@ -206,28 +199,29 @@ all_pix = all_pix[0:currow_pix]
 all_evt = all_evt[0:currow_evt]
 all_blobs = all_blobs[0:currow_blobs]
 
-# generate the header/metadata
-all_hdr = { 'SPH_RAD' : all_sphere_radius,
-            'NPRI_GEN' : all_numprims_gen,
-            'NPRI_INT' : all_numprims_interact,
-            'NFRAMES' : all_nframes,
-            'NBLOBS' : all_nblobs,
-            'TEXPFRAM' : all_texpframe,
-            'TEXPTOT' : all_texptot }
-all_frames.meta = all_hdr
-all_pix.meta = all_hdr
-all_evt.meta = all_hdr
-all_blobs.meta = all_hdr
+# set header/metadata for output FITS files
+hdr = fits.Header()
+hdr.set('SPH_RAD', all_sphere_radius, 'Radius of Geant4 source sphere in cm')
+hdr.set('NPRI_GEN', all_numprims_gen, 'Number of primaries generated')
+hdr.set('NPRI_INT', all_numprims_interact, 'Number of primaries producing signal')
+hdr.set('NFRAMES', all_nframes, 'Number of frames in this file')
+hdr.set('NBLOBS', all_nblobs, 'Number of blobs in this file')
+hdr.set('TEXPFRAM', all_texpframe, 'Frame exposure time in sec')
+hdr.set('TEXPTOT', all_texptot, 'Total exposure time in sec')
 
-# write out the combined FITS files
-outframefits = os.path.join(path, 'geant_events_all_frames.fits')
-all_frames.write(outframefits, overwrite=True)
-outpixfits = os.path.join(path, 'geant_events_all_pix.fits')
-all_pix.write(outpixfits, overwrite=True)
-outevtfits = os.path.join(path, 'geant_events_all_evt.fits')
-all_evt.write(outevtfits, overwrite=True)
-outblobfits = os.path.join(path, 'geant_events_all_blobs.fits')
-all_blobs.write(outblobfits, overwrite=True)
+# create an empty primary HDU
+empty_primary = fits.PrimaryHDU(header=hdr)
+# create HDUs for each table extension
+events_hdu = fits.BinTableHDU(all_evt, name='EVENTS', header=hdr)
+frames_hdu = fits.BinTableHDU(all_frames, name='FRAMES', header=hdr)
+blobs_hdu = fits.BinTableHDU(all_blobs, name='BLOBS', header=hdr)
+pix_hdu = fits.BinTableHDU(all_pix, name='PIXELS', header=hdr)
+
+# write out the combined FITS file
+outfitsfile = os.path.join(path, 'geant_events_all.fits')
+print(f"### Writing combined output FITS file {outfitsfile}.")
+hdul = fits.HDUList([empty_primary, events_hdu, frames_hdu, blobs_hdu, pix_hdu])
+hdul.writeto(outfitsfile, output_verify='silentfix', overwrite=True, checksum=True)
 
 exit()
 
