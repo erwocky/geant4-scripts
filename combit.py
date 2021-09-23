@@ -17,6 +17,10 @@
 # can be considered a simulated WFI observation obtained from the full
 # Geant4 run.
 #
+# EDM Tue Sep 14 16:43:07 EDT 2021
+# Updated to properly increment running PRIMID in events and pixels, as per
+# bug reported by Dan Wilkins.
+#
 # EDM Mon Jul 12 11:57:19 EDT 2021
 # Updated to deal with single four-extension input and output FITS files.
 # Four extensions are for events, frames, blobs, and pixels.
@@ -62,6 +66,7 @@ numfiles = len(filenames)
 numfiles_done = 0
 offset_frame = 0
 offset_blobid = 0
+offset_primid = 0
 offset_time = 0.
 currow_frames = 0
 currow_pix = 0
@@ -110,7 +115,9 @@ for fitsfile in filenames :
     this_frames['TIME'] += offset_time
     this_pix['FRAME'] += offset_frame
     this_pix['BLOBID'] += offset_blobid
+    this_pix['PRIMID'] += offset_primid
     this_evt['FRAME'] += offset_frame
+    this_evt['PRIMID'] += offset_primid
     this_blobs['FRAME'] += offset_frame
     this_blobs['BLOBID'] += offset_blobid
 
@@ -188,6 +195,7 @@ for fitsfile in filenames :
     offset_frame += this_nframes
     offset_time += this_texp
     offset_blobid += this_nblobs
+    offset_primid += this_numprims_gen
     currow_frames += this_numrows_frames
     currow_pix += this_numrows_pix
     currow_evt += this_numrows_evt
